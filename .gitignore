@@ -1,0 +1,10 @@
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.client_config.json
+.fragment_send_queue.json
+.fragment_recv_buffer.json
+comparison/
+DESIGN_CLEAN.md
