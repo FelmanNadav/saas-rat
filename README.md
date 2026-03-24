@@ -67,8 +67,14 @@ Covert command-and-control framework using Google Sheets as a communication chan
 git clone git@github.com:FelmanNadav/saas-rat.git
 cd saas-rat
 python -m venv venv
-source venv/bin/activate
-pip install requests openai
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Verify it works:
+
+```bash
+python -c "import requests, openai; print('OK')"
 ```
 
 ### 2. Create the Google Sheet
