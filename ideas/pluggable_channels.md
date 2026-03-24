@@ -73,3 +73,36 @@ Firebase config is smaller: base URL + inbox path + outbox path.
 - `switch_channel` payload contains live credentials (Forms URLs, Firebase endpoint). Acceptable by design — the channel is the trust boundary and the payload is encrypted.
 - Multiple active channels (server aggregates across sheets) is a separate and more complex idea — separate from the switch mechanic.
 - The `target` field + multi-client routing is independent of this and should be implemented first.
+
+---
+
+## Testing — implement alongside the channel abstraction
+
+The channel abstraction unlocks proper automated testing of multi-cycle behavior (currently untested). When implementing, use **dependency injection** rather than extracting `run_cycle()` as a workaround:
+
+- `client.py` main loop receives a `channel` object and a `clock` object instead of calling `common.*` and `time.sleep` directly
+- Tests pass a `FakeChannel` (pre-loaded inbox data, records writes) and a `FakeClock` (sleep is a no-op)
+- `FakeChannel` implements the same interface as `SheetsChannel` — the test drives N cycles by calling the loop N times with instant sleep
+
+**What this enables:**
+- Assert exactly one fragment written per cycle when send queue is non-empty
+- Assert queue depth decreases by one per cycle
+- Assert server-side reassembly returns original result after N cycles
+- Assert failed write leaves queue unchanged and retries next cycle
+- Assert `switch_channel` silences the old channel and activates the new one
+
+This is the correct enterprise-grade pattern. Do not refactor `main()` for testability before the channel abstraction exists — the abstraction solves both problems at once.
+
+---
+
+## Server Poll Interval — resolve with channel abstraction
+
+Currently the server's background poll thread (`_start_poll_thread`) reads its interval from `common.read_config()` (the deprecated config sheet tab) and falls back to a hardcoded 30s. This is a leftover from the old config-tab design.
+
+The server poll interval should match the client's poll interval — there is no point checking for results faster than the client can produce them. Three options were considered:
+
+- **Option A (current recommendation):** `SERVER_POLL_INTERVAL_SEC` in `.env`, set manually by the operator to match the client config. Simple, explicit, no coupling.
+- **Option B:** Server reads `.client_config.json` directly — only works when both run on the same machine.
+- **Option C:** Server auto-updates its poll interval from the `current` field in a config command result — self-synchronising but adds state management for an edge case.
+
+Option A is the right interim fix. The real solution is the channel abstraction: when both sides share a `Channel` object with a `poll_interval` property, the interval is a channel-level concept and the problem dissolves — the server's event loop reads the same interval the client uses, and a `switch_channel` or `config` command updates both sides coherently.
