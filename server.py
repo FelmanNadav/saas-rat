@@ -82,14 +82,24 @@ def _wants_summary(text):
 
 def send_command(command, payload=None, target="outbox"):
     command_id = str(uuid.uuid4())
-    common.write_inbox_form({
+    payload_str = json.dumps(payload or {})
+    data = {
         "command_id": command_id,
         "command": command,
-        "payload": json.dumps(payload or {}),
+        "payload": payload_str,
         "target": target,
         "status": "pending",
         "created_at": now_iso(),
-    })
+    }
+    fragmenter = common.get_fragmenter()
+    chunks = fragmenter.fragment(payload_str)
+    if len(chunks) == 1:
+        common.write_inbox_form(data)
+    else:
+        frags = common.build_inbox_fragments(data, chunks)
+        print(f"[server] Payload fragmented into {len(frags)} chunks")
+        for frag in frags:
+            common.write_inbox_form(frag)
     print(f"[server] Sent {command_id}: {command}")
     return command_id
 
