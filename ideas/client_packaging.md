@@ -104,10 +104,28 @@ to find the detection boundary.
 
 | Profile | Build | Reversibility | Status |
 |---|---|---|---|
-| **basic** | PyInstaller `--onefile` | Extractable with pyinstxtractor + decompile-bytecode | **Implement first** |
-| **upx** | PyInstaller + UPX compression | Extra unpack step before Python layer is accessible | Planned |
-| **pyarmor** | PyArmor source encryption → PyInstaller | pyinstxtractor yields encrypted bytecode, not readable source | Planned |
+| **basic** | PyInstaller `--onefile` | Extractable with pyinstxtractor + decompile-bytecode | Done |
+| **upx** | PyInstaller + UPX compression | Extra unpack step before Python layer is accessible | Done |
+| **pyarmor** | PyArmor source encryption → PyInstaller | pyinstxtractor yields encrypted bytecode, not readable source | Done |
 | **nuitka** | Nuitka → native ELF/.exe | No Python bytecode — C-level binary, hardest to reverse | Planned |
+
+### PyArmor implementation notes
+
+PyArmor encrypts `client.py` bytecode before PyInstaller bundles it. This creates a
+complication: PyInstaller's static import tracer cannot see through the encryption, so
+stdlib modules that `client.py` imports (`uuid`, `json`, `platform`, etc.) are not
+automatically included in the bundle.
+
+`packager.py` works around this with `PYARMOR_STDLIB_IMPORTS` — an explicit list of
+every stdlib module that `client.py` uses, passed as `--hidden-import` flags only for
+the pyarmor profile. **If you add new stdlib imports to `client.py`, add them to that
+list too, otherwise the pyarmor binary will crash at runtime with `ModuleNotFoundError`.**
+
+The build pipeline:
+1. `pyarmor gen -O <tmpdir> client.py` — obfuscated `client.py` + `pyarmor_runtime_XXXXXX/` (.so)
+2. Copy `common.py`, `channel/`, `crypto/`, `fragmenter/` into tmpdir (unobfuscated — only the entry point is encrypted)
+3. PyInstaller `--onefile` with `--paths=tmpdir`, `--hidden-import=pyarmor_runtime_XXXXXX`, and all `PYARMOR_STDLIB_IMPORTS`
+4. tmpdir cleaned up automatically
 
 **Recommended test sequence:** build basic → run against defense product → if caught,
 stop. If not caught, add upx → retest. Continue until detection fires or all profiles
@@ -136,8 +154,12 @@ Adds a binary unpacking step before the Python layer is accessible.
 
 **Nuitka**
 Compiles Python to C, produces a native binary. No Python bytecode to extract.
-Hardest to reverse. Slower build. Better for long-term operational security.
+Hardest to reverse. Slower build (several minutes). Better for long-term operational security.
 Does not cross-compile — build on target OS.
+Requires: `pip install nuitka`, `gcc`, and on Linux: `sudo apt install patchelf`.
+**Do not run `strip` or UPX on the output binary.** Nuitka `--onefile` embeds its
+compressed payload in a custom ELF section — `strip` removes it, UPX corrupts the
+bootstrap. Both cause a segfault at runtime.
 
 ---
 
@@ -186,13 +208,9 @@ its own handler, signature verification, and rollback on failure.
 
 ## Implementation Order
 
-1. `packager.py` — interactive script, selects modules, runs PyInstaller (basic profile)
-   - Asks which crypto to include (plaintext / fernet / both)
-   - Asks which fragmenter to include (passthrough / fixed / both)
-   - Declares all required `--hidden-import` flags
-   - Outputs single binary to `dist/client`
-2. Test basic profile against defense product
-3. Add UPX profile to `packager.py` if basic is caught
-4. Add PyArmor profile if UPX is caught
-5. Nuitka as final escalation
-6. Design `load_module` command as a separate workstream (deferred)
+1. ~~`packager.py` — interactive script, selects modules, runs PyInstaller (basic profile)~~ **Done**
+2. ~~Test basic profile against defense product~~ — pending operator test
+3. ~~Add UPX profile to `packager.py`~~ **Done**
+4. ~~Add PyArmor profile~~ **Done**
+5. Nuitka as final escalation — planned
+6. Design `load_module` command as a separate workstream — deferred

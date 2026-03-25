@@ -74,6 +74,38 @@ sheets-c2/
 
 ---
 
+## Client Packaging
+
+`packager.py` builds a standalone client binary using PyInstaller or Nuitka. No Python required on the target machine. Config is read from environment variables at runtime — nothing is baked in.
+
+```bash
+python packager.py
+```
+
+### Obfuscation profiles
+
+| Profile | How | Reversibility |
+|---------|-----|---------------|
+| `basic` | PyInstaller `--onefile` | pyinstxtractor + bytecode decompiler |
+| `upx` | PyInstaller + UPX compression | Must `upx -d` before Python layer is accessible |
+| `pyarmor` | PyArmor encryption + PyInstaller | Encrypted bytecode — pyarmor_runtime .so required to decrypt |
+| `nuitka` | Nuitka → native C binary | No Python bytecode — requires disassembler |
+
+**Recommended test sequence:** basic → upx → pyarmor → nuitka. Stop when your defense product fires — that tells you exactly what detection level you need.
+
+All profiles support **silent mode** (strips all console output — defeats sandbox stdout monitoring).
+
+### Packaging prerequisites
+
+```bash
+pip install PyInstaller pyarmor nuitka   # Python deps
+sudo apt install upx patchelf            # System deps (Linux)
+```
+
+> **Note:** Do not run `strip` or UPX on Nuitka `--onefile` binaries — it corrupts the bootstrap and causes a segfault.
+
+---
+
 ## Prerequisites
 
 - Python 3.8+
@@ -413,5 +445,5 @@ See `ideas/` for detailed design docs.
 | `switch_channel` command (mid-op channel pivot) | Planned |
 | Firebase backend | Planned |
 | Multi-client routing via `target` field | Planned |
-| Client packaging (PyInstaller dropper) | Planned |
+| Client packaging (basic, UPX, PyArmor, Nuitka profiles) | Done |
 | `load_module` command (exec-over-the-wire) | Planned |

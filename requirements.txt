@@ -1,3 +1,11 @@
 requests
 openai
 cryptography
+
+# Packaging (packager.py) — install only when building client binaries
+# PyInstaller is required for all profiles
+# pyarmor is required for the pyarmor profile
+# nuitka is required for the nuitka profile (also needs: gcc, patchelf on Linux)
+PyInstaller
+pyarmor
+nuitka
