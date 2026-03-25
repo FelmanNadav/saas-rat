@@ -34,17 +34,30 @@ If enabled, the wizard generates the maps and shows you the names to use when cr
 
 ### 3. Channel Setup
 
-Configure the Google Sheets channel. Two sub-modes:
+Choose a channel — the transport layer for all C2 traffic.
 
-**Auto (Apps Script) — recommended**
+| Channel | Traffic destination | Cleanup |
+|---|---|---|
+| `sheets` | `docs.google.com` | Manual (`sheets_c2_cleanup.gs`) |
+| `firebase` | `firebaseio.com` | Automatic after result confirmed |
+
+**Sheets — two sub-modes:**
+
+*Auto (Apps Script) — recommended*
 
 The wizard writes `sheets_c2_setup.gs`. You paste it into [script.google.com](https://script.google.com), run `setup()`, copy the JSON from the execution log, and paste it back. The wizard fills in all sheet/form IDs automatically.
 
 The wizard also writes `sheets_c2_cleanup.gs` — run `cleanupAll()` to delete all data rows from inbox and outbox (keeps headers). Use `installTrigger()` to automate this on a schedule.
 
-**Manual**
+*Manual*
 
 Step-by-step browser instructions. The wizard asks for each value individually. See [Manual Google Sheets Setup](#manual-google-sheets-setup) below.
+
+**Firebase:**
+
+The wizard walks through creating a Firebase Realtime Database in the Firebase console, setting public read/write rules (encryption handles content security), and runs a live connection test before writing env vars. No Apps Script required.
+
+See [docs/firebase.md](firebase.md) for the full Firebase channel reference.
 
 ### 4. Fragmentation
 
