@@ -38,8 +38,8 @@ Choose a channel — the transport layer for all C2 traffic.
 
 | Channel | Traffic destination | Cleanup |
 |---|---|---|
-| `sheets` | `docs.google.com` | Manual (`sheets_c2_cleanup.gs`) |
-| `firebase` | `firebaseio.com` | Automatic after result confirmed |
+| `sheets` | `docs.google.com` | Auto per-message (service account) or manual (`sheets_c2_cleanup.gs`) |
+| `firebase` | `firebaseio.com` | Automatic after result confirmed (inbox + outbox) |
 
 **Sheets — two sub-modes:**
 
@@ -72,6 +72,7 @@ Choose how large results are handled.
 
 - **OpenAI API key** — required for `server.py ai` mode only. Skip if using CLI mode.
 - **Client ID** — identifier reported in results. Defaults to `NADAV`. Useful when running multiple clients.
+- **Service account JSON** (Sheets only) — path to a GCP service account key file. When set, the server automatically deletes inbox and outbox rows after each confirmed result — no manual cleanup needed. Setup: GCP → IAM & Admin → Service Accounts → Create → download JSON key → share the spreadsheet with the service account email (Editor role).
 
 ### 6. Summary and Write
 

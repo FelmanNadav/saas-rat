@@ -89,11 +89,11 @@ Column name obfuscation (Sheets feature) does not apply to Firebase. The JSON ke
 
 ---
 
-## Inbox Cleanup
+## Cleanup
 
-When a result arrives from the client, the server automatically deletes the corresponding inbox entry via a `DELETE` request. This keeps the inbox lean — only pending unexecuted tasks remain.
+When a result arrives from the client, the server automatically deletes both the inbox entry (task) and the outbox entry (result) via `DELETE` requests. Both sides stay lean with no manual intervention.
 
-Fragment entries (`{id}_f0`, `{id}_f1`, ...) are not auto-cleaned in this release. Use the Firebase console → Data → delete the inbox path to clear manually when needed.
+Fragment entries (`{id}_f0`, `{id}_f1`, ...) are not auto-cleaned. Use the Firebase console → Data → delete the inbox path to clear manually when needed.
 
 ---
 
@@ -109,6 +109,6 @@ FRAGMENT_METHOD=passthrough   # recommended for Firebase
 
 ## Limitations
 
-- **Fragment cleanup:** Only the primary `{command_id}` inbox key is auto-deleted after a result. Fragment keys (`{id}_fN`) remain until manually cleared.
+- **Fragment cleanup:** Only the primary `{command_id}` inbox and outbox keys are auto-deleted. Fragment keys (`{id}_fN`) remain until manually cleared.
 - **No push:** The channel uses polling (same as Sheets). Firebase supports real-time SSE/websocket subscriptions but the current implementation uses REST GET.
 - **Public database:** Firebase Realtime Database in test mode is world-readable and world-writable. Always use Fernet encryption in any non-lab environment.
