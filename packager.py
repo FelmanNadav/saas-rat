@@ -16,6 +16,7 @@ Obfuscation profiles (escalate until defense product fires):
 """
 
 import os
+import shutil
 import subprocess
 import sys
 
@@ -83,8 +84,8 @@ ALWAYS_IMPORTS = [
 # Build
 # ---------------------------------------------------------------------------
 
-def build_basic(hidden_imports, output_name):
-    """Run PyInstaller with --onefile and all required hidden imports."""
+def _pyinstaller_base_cmd(hidden_imports, output_name):
+    """Build the common PyInstaller command shared by basic and upx profiles."""
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
@@ -94,14 +95,56 @@ def build_basic(hidden_imports, output_name):
         "--workpath", "build",
         "--specpath", "build",
     ]
-
     for imp in hidden_imports:
         cmd += ["--hidden-import", imp]
-
     cmd.append("client.py")
+    return cmd
 
+
+def build_basic(hidden_imports, output_name):
+    """PyInstaller --onefile, no compression."""
+    cmd = _pyinstaller_base_cmd(hidden_imports, output_name)
     print(f"\n[packager] Running: {' '.join(cmd)}\n")
     result = subprocess.run(cmd)
+    return result.returncode == 0
+
+
+def build_upx(hidden_imports, output_name):
+    """PyInstaller --onefile, then UPX applied directly to the output binary.
+
+    PyInstaller disables its built-in UPX integration on Linux due to known
+    compatibility issues, so we run UPX on the finished binary instead.
+    UPX adds a decompression stub — an analyst must 'upx -d' the binary before
+    the Python layer is accessible. Typical size reduction: 40-50%.
+    """
+    upx_path = shutil.which("upx")
+    if not upx_path:
+        print("[packager] UPX not found on PATH — install with: sudo apt install upx")
+        return False
+
+    # Step 1 — build with PyInstaller (no --upx-dir, avoid the disabled integration)
+    cmd = _pyinstaller_base_cmd(hidden_imports, output_name)
+    print(f"\n[packager] Step 1 — PyInstaller build")
+    print(f"[packager] Running: {' '.join(cmd)}\n")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        return False
+
+    # Step 2 — compress the output binary directly with UPX
+    ext = ".exe" if sys.platform == "win32" else ""
+    binary = os.path.join("dist", output_name + ext)
+    print(f"\n[packager] Step 2 — UPX compression")
+    print(f"[packager] Note: PyInstaller --onefile already compresses its payload,")
+    print(f"[packager] so size reduction will be minimal (~0-2%). UPX still wraps")
+    print(f"[packager] the binary with a different header/stub, changing its signature.")
+    upx_cmd = [upx_path, "--best", binary]
+    print(f"[packager] Running: {' '.join(upx_cmd)}\n")
+    result = subprocess.run(upx_cmd)
+    if result.returncode == 0:
+        # UPX creates a .upx backup of the original — remove it
+        backup = binary + ".upx"
+        if os.path.exists(backup):
+            os.remove(backup)
     return result.returncode == 0
 
 
@@ -131,7 +174,7 @@ def main():
         default="basic",
     )
 
-    if profile != "basic":
+    if profile in ("pyarmor", "nuitka"):
         print(f"\n[packager] Profile '{profile}' is not yet implemented.")
         print("  See ideas/client_packaging.md for the roadmap.")
         sys.exit(0)
@@ -169,7 +212,10 @@ def main():
     print(f"\n[packager] Hidden imports: {hidden}")
 
     # ── Build ─────────────────────────────────────────────────────────────────
-    ok = build_basic(hidden, output_name)
+    if profile == "upx":
+        ok = build_upx(hidden, output_name)
+    else:
+        ok = build_basic(hidden, output_name)
 
     if ok:
         ext = ".exe" if sys.platform == "win32" else ""
