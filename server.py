@@ -471,8 +471,11 @@ def ai_chat():
             hostname = data.get("hostname", "")
             username = data.get("username", "")
             ver = data.get("os_version", "")
+            # distro (from /etc/os-release) is authoritative over os_version for
+            # environment identification — os_version reflects host kernel in containers
+            distro = data.get("distro", "")
             if os_name:
-                fact = f"OS: {os_name} | version: {ver} | arch: {arch} | hostname: {hostname} | user: {username}"
+                fact = f"OS: {distro or os_name} | kernel: {ver} | arch: {arch} | hostname: {hostname} | user: {username}"
                 replaced = False
                 for i, f in enumerate(session_facts):
                     if f.startswith("OS:"):

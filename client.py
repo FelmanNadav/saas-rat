@@ -37,8 +37,24 @@ def _get_username():
         return "unknown"
 
 
+def _get_distro():
+    """Read the actual distro from /etc/os-release (Linux only).
+    Necessary because Docker containers share the host kernel — platform.version()
+    returns the host kernel string (e.g. 'Kali 6.x') even inside a Debian container.
+    distro reflects what is actually installed inside the container/machine.
+    """
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    return line.split("=", 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return None
+
+
 def _system_info():
-    return {
+    info = {
         "os": platform.system(),
         "os_version": platform.version(),
         "hostname": platform.node(),
@@ -46,6 +62,10 @@ def _system_info():
         "architecture": platform.machine(),
         "username": _get_username(),
     }
+    distro = _get_distro()
+    if distro:
+        info["distro"] = distro
+    return info
 
 
 # ---------------------------------------------------------------------------

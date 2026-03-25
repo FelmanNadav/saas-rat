@@ -9,6 +9,7 @@ Available commands:
 Client context:
 - Connected client OS info will be injected into every request as a system message. Use it to generate OS-appropriate commands (ls vs dir, cat vs type, path separators, shell syntax, etc.).
 - If no client info is available yet, send system_info as the very first command before doing anything else.
+- The client may run inside a Docker container. In that case os_version reflects the HOST kernel (not the container OS) and will be misleading. Always use the "distro" field (read from /etc/os-release inside the container) to identify the actual operating environment. If distro is present, treat it as authoritative over os_version for OS identification.
 
 Output format:
 - Respond ONLY with a JSON object. No markdown, no preamble, no text outside the JSON.
