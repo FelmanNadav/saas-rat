@@ -161,6 +161,63 @@ class TestHandleConfig:
 
 
 # ---------------------------------------------------------------------------
+# handle_switch_channel
+# ---------------------------------------------------------------------------
+
+class TestHandleSwitchChannel:
+    def test_valid_firebase_returns_switched_to(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import handle_switch_channel
+        result = handle_switch_channel({"channel": "firebase"})
+        assert result["switched_to"] == "firebase"
+        assert result["previous"] == "sheets"
+        assert "error" not in result
+
+    def test_valid_sheets_returns_switched_to(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "firebase")
+        from client import handle_switch_channel
+        result = handle_switch_channel({"channel": "sheets"})
+        assert result["switched_to"] == "sheets"
+        assert result["previous"] == "firebase"
+        assert "error" not in result
+
+    def test_unknown_channel_returns_error(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import handle_switch_channel
+        result = handle_switch_channel({"channel": "ftp"})
+        assert "error" in result
+        assert "ftp" in result["error"]
+        assert "_deferred_switch" not in result
+
+    def test_empty_channel_returns_error(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import handle_switch_channel
+        result = handle_switch_channel({})
+        assert "error" in result
+
+    def test_deferred_switch_key_present_on_valid_switch(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import handle_switch_channel
+        result = handle_switch_channel({"channel": "firebase"})
+        assert "_deferred_switch" in result
+        assert result["_deferred_switch"] == "firebase"
+
+    def test_already_on_same_channel_returns_note(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "firebase")
+        from client import handle_switch_channel
+        result = handle_switch_channel({"channel": "firebase"})
+        assert "note" in result
+        assert "already" in result["note"]
+        assert "_deferred_switch" not in result
+
+    def test_case_insensitive_channel_name(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import handle_switch_channel
+        result = handle_switch_channel({"channel": "Firebase"})
+        assert result["switched_to"] == "firebase"
+
+
+# ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
 
@@ -221,6 +278,43 @@ class TestDispatch:
         from client import dispatch
         result = dispatch(self._task("echo", {}, command_id="track-me"))
         assert result["command_id"] == "track-me"
+
+    def test_switch_channel_deferred_switch_hoisted_to_data(self, monkeypatch):
+        """_deferred_switch must be on outer data dict, not inside the result JSON."""
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import dispatch
+        result = dispatch(self._task("switch_channel", {"channel": "firebase"}))
+        assert result.get("_deferred_switch") == "firebase"
+
+    def test_switch_channel_not_in_result_json(self, monkeypatch):
+        """_deferred_switch must NOT appear in the JSON written to the outbox."""
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import dispatch
+        result = dispatch(self._task("switch_channel", {"channel": "firebase"}))
+        result_data = json.loads(result["result"])
+        assert "_deferred_switch" not in result_data
+
+    def test_switch_channel_result_json_has_switched_to(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import dispatch
+        result = dispatch(self._task("switch_channel", {"channel": "firebase"}))
+        result_data = json.loads(result["result"])
+        assert result_data["switched_to"] == "firebase"
+
+    def test_no_deferred_switch_for_other_commands(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import dispatch
+        result = dispatch(self._task("echo", {"msg": "hi"}))
+        assert "_deferred_switch" not in result
+
+    def test_no_deferred_switch_on_unknown_channel_error(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        from client import dispatch
+        result = dispatch(self._task("switch_channel", {"channel": "invalid"}))
+        assert "_deferred_switch" not in result
+        assert result["status"] == "success"  # handler returns error dict, not exception
+        result_data = json.loads(result["result"])
+        assert "error" in result_data
 
     def test_fragment_status_format(self, monkeypatch):
         monkeypatch.setenv("FRAGMENT_METHOD", "fixed")
