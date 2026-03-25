@@ -173,3 +173,10 @@ def delete_task_entry(command_id: str) -> None:
     if ch.supports_cleanup:
         ch.delete_task(command_id)
         ch.delete_result(command_id)
+
+
+def delete_outbox_entry(command_id: str) -> None:
+    """Delete a single outbox entry after it has been read and processed (e.g. heartbeats)."""
+    ch = get_channel()
+    if ch.supports_cleanup:
+        ch.delete_result(command_id)

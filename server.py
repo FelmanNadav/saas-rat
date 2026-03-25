@@ -396,6 +396,7 @@ def ai_chat():
                         )
                 except Exception:
                     pass
+                common.delete_outbox_entry(cid)
     except Exception:
         pass
 
@@ -517,6 +518,7 @@ def ai_chat():
                                     )
                             except Exception:
                                 pass
+                            common.delete_outbox_entry(hb_id)
 
                     if row.get("command_id") == cmd_id and row.get("status") != "heartbeat":
                         arrived_ids.add(cmd_id)
