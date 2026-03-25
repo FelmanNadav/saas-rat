@@ -1,6 +1,7 @@
 requests
 openai
 cryptography
+gspread
 
 # Packaging (packager.py) — install only when building client binaries
 # PyInstaller is required for all profiles

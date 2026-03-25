@@ -161,6 +161,72 @@ class SheetsChannel(Channel):
             print(f"[error] write_task failed: {e}")
             return False
 
+    # ── Cleanup via service account ───────────────────────────────────────────
+
+    @property
+    def supports_cleanup(self):
+        return bool(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip())
+
+    def _gspread_client(self):
+        creds_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+        try:
+            import gspread
+            return gspread.service_account(filename=creds_path)
+        except Exception as e:
+            print(f"[warn] gspread auth failed: {e}")
+            return None
+
+    def _delete_by_command_id(self, command_id, gid_env, col_map_env):
+        """Find all rows matching command_id in a tab and delete them."""
+        gc = self._gspread_client()
+        if not gc:
+            return False
+        try:
+            ss = gc.open_by_key(os.environ["SPREADSHEET_ID"])
+            gid = int(os.environ[gid_env])
+            ws = next((s for s in ss.worksheets() if s.id == gid), None)
+            if ws is None:
+                print(f"[warn] sheet cleanup: tab GID {gid} not found")
+                return False
+
+            col_map = _get_column_map(col_map_env)
+            cmd_col = col_map.get("command_id", "command_id")
+
+            headers = ws.row_values(1)
+            if cmd_col not in headers:
+                print(f"[warn] sheet cleanup: column '{cmd_col}' not in headers")
+                return False
+
+            col_idx = headers.index(cmd_col) + 1  # gspread is 1-indexed
+            enc = common.get_encryptor()
+            col_vals = ws.col_values(col_idx)
+
+            to_delete = []
+            for i, val in enumerate(col_vals[1:], start=2):  # skip header row
+                try:
+                    decrypted = enc.decrypt(val) if val else ""
+                except Exception:
+                    decrypted = val
+                if decrypted == command_id:
+                    to_delete.append(i)
+
+            # Delete in reverse order so earlier row deletions don't shift later indices
+            for row_num in sorted(to_delete, reverse=True):
+                ws.delete_rows(row_num)
+
+            return bool(to_delete)
+        except Exception as e:
+            print(f"[warn] sheet cleanup failed: {e}")
+            return False
+
+    def delete_task(self, command_id):
+        return self._delete_by_command_id(command_id, "INBOX_GID", "INBOX_COLUMN_MAP")
+
+    def delete_result(self, command_id):
+        return self._delete_by_command_id(command_id, "OUTBOX_GID", "OUTBOX_COLUMN_MAP")
+
+    # ── Fragment builders ─────────────────────────────────────────────────────
+
     def build_outbox_fragments(self, data, chunks):
         total = len(chunks)
         return [
