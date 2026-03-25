@@ -95,22 +95,16 @@ This is the correct enterprise-grade pattern. Do not refactor `main()` for testa
 
 ---
 
-## Server Poll Interval — current state and open idea
+## Server Refresh Interval — current state and planned feature
 
-**Current state:** `_start_poll_thread` calls `common.get_channel().poll_interval()`. `SheetsChannel.poll_interval()` returns a fixed 5s. The `Channel` base class defaults to 30s for future backends. No config needed, no sync burden.
+**Naming note:** The server's background read loop is called the *refresh interval*
+(not poll interval) to distinguish it from the client's *cycle interval*. See
+`ideas/sync_refresh_interval.md` for the full design and naming rationale.
 
-The fixed 5s works fine in practice — the server just polls until a result appears, and results arrive whenever the client writes them. Polling faster than necessary is harmless (cheap CSV read).
+**Current state:** `_start_poll_thread` calls `common.get_channel().refresh_interval()`.
+`SheetsChannel` defaults to 5s. The `Channel` base class defaults to 30s for future
+backends. Fixed value, no sync with client timing.
 
-**The open idea: self-synchronising poll interval**
-
-Ideally the server's poll interval would automatically track the client's actual cycle time. When the operator sends a `config` command that changes `poll_interval_sec` or `poll_jitter_max`, the server's background poller should adjust immediately without any manual change.
-
-Approaches worth exploring:
-
-- **Option A — Config command side-effect:** when the server sends a `config` command, it updates `common.get_channel().set_poll_interval(new_interval)` locally at the same time. Both sides stay in sync because the server is the one initiating the change. Simple, no new commands needed. Risk: server-side state can drift if the client's config is changed by another server instance.
-
-- **Option B — Heartbeat carries client timing:** client includes `poll_interval_sec` and `poll_jitter_max` in heartbeat results. Server reads these on arrival and calls `set_poll_interval()` on the channel. Fully self-synchronising. Requires heartbeat schema change and server-side heartbeat processing.
-
-- **Option C — `switch_channel` carries timing:** when implementing `switch_channel`, include the new poll interval in the channel config payload. Both sides update their interval as part of the switch. Natural fit — channel config already travels together.
-
-Option B is the cleanest long-term answer and pairs well with heartbeat improvements. Option A is a quick win once `switch_channel` is built. Option C falls out naturally from `switch_channel` design.
+**Planned:** Option B from the original design — heartbeat carries client cycle
+timing, server applies it automatically. Operator can override with `refresh <sec>`
+REPL command. Full design in `ideas/sync_refresh_interval.md`.
