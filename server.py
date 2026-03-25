@@ -616,6 +616,12 @@ def ai_chat():
             continue
 
         # refresh <sec> / refresh auto / refresh
+        # Also catch natural-language phrasings before they reach GPT-4o
+        if any(p in cmd for p in ("set refresh to auto", "refresh to auto", "change refresh to auto",
+                                   "refresh mode auto", "auto refresh")):
+            common.get_channel().clear_refresh_override()
+            print(f"  {C_GREEN}Refresh override cleared — interval will sync to next heartbeat.{C_RESET}\n")
+            continue
         if cmd.startswith("refresh"):
             ch = common.get_channel()
             arg = cmd[len("refresh"):].strip()
