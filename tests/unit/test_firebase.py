@@ -612,8 +612,16 @@ class TestDeleteTaskEntryWrapper:
         common._active_channel = None
         with patch("requests.delete", return_value=ok_response()) as mock_del:
             common.delete_task_entry("abc123")
-        url = mock_del.call_args[0][0]
-        assert "abc123" in url
+        urls = [call[0][0] for call in mock_del.call_args_list]
+        assert any("inbox" in u for u in urls), "expected inbox DELETE"
+        assert any("outbox" in u for u in urls), "expected outbox DELETE"
+
+    def test_calls_both_delete_task_and_delete_result(self, firebase_env):
+        import common
+        common._active_channel = None
+        with patch("requests.delete", return_value=ok_response()) as mock_del:
+            common.delete_task_entry("abc123")
+        assert mock_del.call_count == 2
 
     def test_noop_on_sheets_channel(self, monkeypatch):
         monkeypatch.setenv("CHANNEL", "sheets")
@@ -629,4 +637,44 @@ class TestDeleteTaskEntryWrapper:
         common._active_channel = None
         with patch("requests.delete", return_value=ok_response()):
             result = common.delete_task_entry("abc123")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# delete_outbox_entry() wrapper
+# ---------------------------------------------------------------------------
+
+class TestDeleteOutboxEntryWrapper:
+    def test_calls_delete_result_on_firebase_channel(self, firebase_env):
+        import common
+        common._active_channel = None
+        with patch("requests.delete", return_value=ok_response()) as mock_del:
+            common.delete_outbox_entry("hb123")
+        urls = [call[0][0] for call in mock_del.call_args_list]
+        assert len(urls) == 1, "only outbox should be deleted"
+        assert "outbox" in urls[0]
+        assert "hb123" in urls[0]
+
+    def test_does_not_delete_inbox(self, firebase_env):
+        import common
+        common._active_channel = None
+        with patch("requests.delete", return_value=ok_response()) as mock_del:
+            common.delete_outbox_entry("hb123")
+        urls = [call[0][0] for call in mock_del.call_args_list]
+        assert not any("inbox" in u for u in urls)
+
+    def test_noop_on_sheets_channel(self, monkeypatch):
+        monkeypatch.setenv("CHANNEL", "sheets")
+        import common
+        common._active_channel = None
+        with patch("requests.delete") as mock_del:
+            common.delete_outbox_entry("hb123")
+        mock_del.assert_not_called()
+        common._active_channel = None
+
+    def test_returns_none(self, firebase_env):
+        import common
+        common._active_channel = None
+        with patch("requests.delete", return_value=ok_response()):
+            result = common.delete_outbox_entry("hb123")
         assert result is None
