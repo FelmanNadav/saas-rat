@@ -65,6 +65,7 @@ _ENV_SECTIONS = [
     ("Encryption",             ["ENCRYPTION_METHOD", "ENCRYPTION_KEY"]),
     ("Column obfuscation",     ["INBOX_COLUMN_MAP", "OUTBOX_COLUMN_MAP"]),
     ("Fragmentation",          ["FRAGMENT_METHOD", "FRAGMENT_CHUNK_SIZE"]),
+    ("Sheets cleanup",         ["GOOGLE_SERVICE_ACCOUNT_JSON"]),
     ("OpenAI",                 ["OPENAI_API_KEY"]),
     ("Client",                 ["CLIENT_ID"]),
 ]
@@ -188,6 +189,18 @@ def main():
     if client_id:
         env["CLIENT_ID"] = client_id
         core.success(f"Client ID: {client_id}")
+
+    if "sheets" in selected:
+        core.info()
+        core.info("Service account cleanup (optional, Sheets only):")
+        core.info("  When set, the server auto-deletes inbox/outbox rows after each")
+        core.info("  confirmed result — no manual cleanup script needed.")
+        core.info("  Setup: GCP → IAM → Service Accounts → Create → download JSON key")
+        core.info("         then share the spreadsheet with the service account email (Editor)")
+        sa_path = core.ask_optional("Path to service account JSON key file")
+        if sa_path:
+            env["GOOGLE_SERVICE_ACCOUNT_JSON"] = sa_path
+            core.success("Service account cleanup enabled")
 
     # ── Step 6: Summary + write ───────────────────────────────────────────────
     core.section("Step 6 — Summary")

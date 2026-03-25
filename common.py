@@ -168,7 +168,8 @@ def build_inbox_fragments(data, chunks):
 
 
 def delete_task_entry(command_id: str) -> None:
-    """Delete an inbox entry after the result is confirmed, if the channel supports it."""
+    """Delete inbox and outbox entries after a result is confirmed, if the channel supports it."""
     ch = get_channel()
     if ch.supports_cleanup:
         ch.delete_task(command_id)
+        ch.delete_result(command_id)
