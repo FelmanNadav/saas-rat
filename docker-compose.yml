@@ -1,5 +1,7 @@
 services:
   client:
     build: .
-    env_file: .env        # passes all .env vars into the container as environment variables
+    env_file: .env
+    environment:
+      CLIENT_ID: ${CLIENT_ID:-NADAV}_docker    # e.g. NADAV_docker — distinguishes from local client
     restart: unless-stopped
