@@ -590,6 +590,31 @@ def ai_chat():
         cmd = user_input.lower()
 
         # Client-side commands — never sent to GPT-4o
+        if cmd in ("help", "?help", "h"):
+            print(f"""
+{C_BOLD}Local REPL commands{C_RESET} — handled directly, never sent to the AI:
+
+  {C_CYAN}mode auto{C_RESET}              Send commands immediately without confirmation
+  {C_CYAN}mode confirm{C_RESET}           Preview and confirm each command before sending
+  {C_CYAN}mode{C_RESET}                   Show current send mode
+
+  {C_CYAN}output raw{C_RESET}             Show results as plain terminal output
+  {C_CYAN}output interpreted{C_RESET}     Show results with AI interpretation
+  {C_CYAN}output{C_RESET}                 Show current output mode
+
+  {C_CYAN}refresh <sec>{C_RESET}          Override server refresh interval (manual — pauses heartbeat sync)
+  {C_CYAN}refresh auto{C_RESET}           Clear override — sync refresh to client heartbeat timing
+  {C_CYAN}refresh{C_RESET}                Show current refresh interval and its source
+
+  {C_CYAN}do it{C_RESET} / {C_CYAN}yes{C_RESET} / {C_CYAN}go{C_RESET}      Execute the pending AI suggestion
+  {C_CYAN}exit{C_RESET} / {C_CYAN}quit{C_RESET}           Exit the console
+
+{C_BOLD}AI commands{C_RESET} — everything else is sent to the AI:
+  Ask in plain language. The AI will send commands, read results, and suggest next steps.
+  Ask "help with config" or "what cycle settings are available" for client config guidance.
+""")
+            continue
+
         if cmd == "mode auto":
             send_mode = "auto"
             print(f"  {C_GREEN}Switched to auto mode.{C_RESET}\n")
@@ -793,15 +818,55 @@ def ai_chat():
 # CLI
 # ---------------------------------------------------------------------------
 
+_CLI_HELP = """\
+Usage: python server.py <mode> [options]
+
+Modes:
+  send      Send a command to the client
+  collect   Read results from the outbox
+  ai        Start the interactive AI operator console
+
+Send options:
+  --command <name>       Command name (required)
+  --payload '<json>'     JSON payload string (optional, default: {})
+
+Available commands:
+  system_info            Return OS, hostname, arch, Python version
+  echo                   Echo back the payload  {"msg": "..."}
+  shell                  Run a shell command     {"cmd": "...", "stdin": "..."}
+  config                 Update client settings  {"cycle_interval_sec": "30",
+                                                  "cycle_jitter_min": "5",
+                                                  "cycle_jitter_max": "15",
+                                                  "client_id": "NADAV",
+                                                  "heartbeat_every": "100"}
+
+Collect options:
+  --id <command_id>      Filter results to a specific command UUID
+
+Examples:
+  python server.py send --command system_info
+  python server.py send --command shell --payload '{"cmd": "whoami"}'
+  python server.py send --command config --payload '{"cycle_interval_sec": "10"}'
+  python server.py collect
+  python server.py collect --id <uuid>
+  python server.py ai
+
+AI console commands (type inside the ai session):
+  help                   Show all local REPL commands
+  mode auto|confirm      Set send mode
+  output raw|interpreted Set output mode
+  refresh <sec>          Override server refresh interval
+  refresh auto           Sync refresh to client heartbeat timing
+  refresh                Show current refresh interval
+"""
+
+
 def main():
     common.load_env()
 
-    if len(sys.argv) < 2:
-        print("Usage: python server.py <send|collect|ai>")
-        print("  send --command <name> [--payload '<json>']")
-        print("  collect [--id <command_id>]")
-        print("  ai")
-        sys.exit(1)
+    if len(sys.argv) < 2 or sys.argv[1] in ("--help", "-h", "help"):
+        print(_CLI_HELP)
+        sys.exit(0 if len(sys.argv) > 1 else 1)
 
     mode = sys.argv[1]
 

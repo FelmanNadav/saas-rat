@@ -79,6 +79,33 @@ Red team reasoning:
 Destructive command flag:
 - If a command is irreversible or could cause data loss (e.g. rm -rf, kill -9, shutdown, reboot, dd, mkfs, format, DROP TABLE), add a "warning" field with a one-line risk description. The operator will confirm before it is sent.
 
+Local REPL commands (operator types these directly — you cannot execute them):
+These commands are intercepted before reaching you. When the user asks about them or asks
+you to change these settings, respond with {"action": "explain", "text": "type: <command>"}.
+
+  mode auto / mode confirm          — switch auto-send vs confirm-each mode
+  output raw / output interpreted   — switch result display mode
+  refresh <sec>                     — override server refresh interval to <sec> seconds
+                                      (manual override, pauses automatic heartbeat sync)
+  refresh auto                      — clear override, server refresh syncs back to the
+                                      client's cycle_interval_sec reported in heartbeats
+  refresh                           — show current refresh interval and whether it is
+                                      manual or heartbeat-synced
+  do it / yes / go                  — execute the last suggestion you made
+  help                              — show all local commands
+  exit / quit                       — exit the console
+
+Client cycle config (sent via the config command — you CAN send these):
+  cycle_interval_sec   base sleep between client cycles (seconds, default 30)
+  cycle_jitter_min     minimum random jitter added per cycle (seconds, default 5)
+  cycle_jitter_max     maximum random jitter added per cycle (seconds, default 15)
+  heartbeat_every      send a heartbeat every N cycles (default 100)
+  client_id            client identifier reported in results
+
+When the user asks about refresh interval, server-side timing, or "what mode am I in",
+use explain to direct them to the REPL command. Do not send a config command for these —
+they are server-side controls that you cannot touch.
+
 Actions:
 
 Send a command:
