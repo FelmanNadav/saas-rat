@@ -105,6 +105,17 @@ def send_command(command, payload=None, target="outbox"):
     return command_id
 
 
+def _apply_channel_switch(channel_name):
+    """Activate a new channel on the server side."""
+    if channel_name == "firebase":
+        from channel.firebase import FirebaseChannel
+        common.set_channel(FirebaseChannel())
+    else:
+        from channel.sheets import SheetsChannel
+        common.set_channel(SheetsChannel())
+    os.environ["CHANNEL"] = channel_name
+
+
 def _print_delivery_estimate():
     """Print expected response timing based on client config and fragment settings."""
     # Read client config if available locally, otherwise use defaults
@@ -531,6 +542,22 @@ def ai_chat():
                         # No-op for channels that don't support deletion (Sheets).
                         common.delete_task_entry(cmd_id)
 
+                        # Channel switch — server mirrors the client's switch
+                        if cmd_id in cmd_id_to_idx:
+                            entry = cmd_log[cmd_id_to_idx[cmd_id]]
+                            if entry.get("command") == "switch_channel":
+                                try:
+                                    result_data = json.loads(row.get("result", "{}"))
+                                    new_ch = result_data.get("switched_to", "")
+                                    if new_ch in ("sheets", "firebase"):
+                                        _apply_channel_switch(new_ch)
+                                        fact = f"channel switched to: {new_ch}"
+                                        if not any("channel switched" in f for f in session_facts):
+                                            session_facts.append(fact)
+                                        print(f"\n{C_GREEN}[Channel] Server switched → {new_ch}{C_RESET}")
+                                except Exception:
+                                    pass
+
                         status = row.get("status", "?")
                         color = C_GREEN if status == "success" else C_RED
                         print(
@@ -847,6 +874,7 @@ Available commands:
                                                   "cycle_jitter_max": "3",
                                                   "client_id": "NADAV",
                                                   "heartbeat_every": "5"}
+  switch_channel         Switch active channel   {"channel": "firebase"|"sheets"}
 
 Collect options:
   --id <command_id>      Filter results to a specific command UUID

