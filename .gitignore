@@ -8,3 +8,6 @@ __pycache__/
 .fragment_recv_buffer.json
 comparison/
 DESIGN_CLEAN.md
+dist/
+build/
+*.spec
