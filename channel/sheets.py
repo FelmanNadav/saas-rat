@@ -70,10 +70,12 @@ def read_config():
 
 
 class SheetsChannel(Channel):
-    def poll_interval(self) -> float:
-        """Poll every 5s — fast enough to surface results promptly without config."""
-        return 5.0
-
+    def __init__(self):
+        super().__init__()
+        # Sheets CSV reads are cheap — 5s default gives prompt result visibility.
+        # The operator can override with 'refresh <sec>' and the heartbeat handler
+        # will auto-sync this to the client's actual cycle interval once one arrives.
+        self._refresh_interval = 5.0
 
     def read_inbox(self):
         gid = os.environ["INBOX_GID"]

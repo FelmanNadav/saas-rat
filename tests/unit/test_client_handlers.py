@@ -10,9 +10,9 @@ def isolate_client(monkeypatch):
     """Reset module-level client state between tests."""
     import client
     client._client_config.update({
-        "poll_interval_sec": "1",
-        "poll_jitter_min": "2",
-        "poll_jitter_max": "3",
+        "cycle_interval_sec": "1",
+        "cycle_jitter_min": "2",
+        "cycle_jitter_max": "3",
         "client_id": "NADAV",
         "heartbeat_every": "100",
     })
@@ -123,8 +123,8 @@ class TestHandleShell:
 class TestHandleConfig:
     def test_known_keys_updated(self):
         from client import handle_config, _client_config
-        handle_config({"poll_interval_sec": "60", "client_id": "agent-01"})
-        assert _client_config["poll_interval_sec"] == "60"
+        handle_config({"cycle_interval_sec": "60", "client_id": "agent-01"})
+        assert _client_config["cycle_interval_sec"] == "60"
         assert _client_config["client_id"] == "agent-01"
 
     def test_unknown_keys_ignored(self):
@@ -137,16 +137,16 @@ class TestHandleConfig:
 
     def test_mixed_known_and_unknown(self):
         from client import handle_config, _client_config
-        result = handle_config({"poll_interval_sec": "45", "bad_key": "x"})
-        assert _client_config["poll_interval_sec"] == "45"
+        result = handle_config({"cycle_interval_sec": "45", "bad_key": "x"})
+        assert _client_config["cycle_interval_sec"] == "45"
         assert "bad_key" in result.get("ignored", {})
 
     def test_result_contains_updated_and_current(self):
         from client import handle_config
-        result = handle_config({"poll_interval_sec": "20"})
+        result = handle_config({"cycle_interval_sec": "20"})
         assert "updated" in result
         assert "current" in result
-        assert result["current"]["poll_interval_sec"] == "20"
+        assert result["current"]["cycle_interval_sec"] == "20"
 
     def test_no_disk_artifact(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -156,8 +156,8 @@ class TestHandleConfig:
 
     def test_values_coerced_to_string(self):
         from client import handle_config, _client_config
-        handle_config({"poll_interval_sec": 90})  # int, not string
-        assert _client_config["poll_interval_sec"] == "90"
+        handle_config({"cycle_interval_sec": 90})  # int, not string
+        assert _client_config["cycle_interval_sec"] == "90"
 
 
 # ---------------------------------------------------------------------------

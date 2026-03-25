@@ -99,16 +99,17 @@ python server.py collect
 ### Test 3 — Config command
 
 ```bash
-python server.py send --command config --payload '{"poll_interval_sec": "10", "client_id": "agent-99"}'
+python server.py send --command config --payload '{"cycle_interval_sec": "10", "client_id": "agent-99"}'
 # wait one poll cycle
 python server.py collect
 ```
 
 **Expected:**
-- Terminal A shows `[client] Config updated: {'poll_interval_sec': '10', 'client_id': 'agent-99'}`
+- Terminal A shows `[client] Config updated: {'cycle_interval_sec': '10', 'client_id': 'agent-99'}`
 - No files written to disk — config is in-memory only
-- Client polls at ~10s intervals from next cycle onward
+- Client cycles at ~10s intervals from next cycle onward
 - Subsequent heartbeats use `client_id: agent-99`
+- Server refresh interval auto-syncs to 10s after next heartbeat arrives
 
 **Restart behavior:**
 - Kill the client (`Ctrl+C`), restart it

@@ -117,9 +117,9 @@ def _print_delivery_estimate():
             pass
 
     try:
-        interval = float(client_cfg.get("poll_interval_sec", 30))
-        jitter_min = float(client_cfg.get("poll_jitter_min", 5))
-        jitter_max = float(client_cfg.get("poll_jitter_max", 15))
+        interval   = float(client_cfg.get("cycle_interval_sec", 30))
+        jitter_min = float(client_cfg.get("cycle_jitter_min",    5))
+        jitter_max = float(client_cfg.get("cycle_jitter_max",   15))
     except ValueError:
         interval, jitter_min, jitter_max = 30, 5, 15
 
@@ -388,14 +388,19 @@ def ai_chat():
             if r.get("status") == "heartbeat":
                 hb_client = r.get("client_id", "unknown")
                 try:
-                    client_os_info[hb_client] = json.loads(r.get("result", "{}"))
+                    info = json.loads(r.get("result", "{}"))
+                    client_os_info[hb_client] = info
+                    if "cycle_interval_sec" in info:
+                        common.get_channel().set_refresh_interval(
+                            float(info["cycle_interval_sec"]), manual=False
+                        )
                 except Exception:
                     pass
     except Exception:
         pass
 
     print(f"  Type a command in plain language, or: "
-          f"mode auto/confirm, output raw/interpreted, exit.\n")
+          f"mode auto/confirm, output raw/interpreted, refresh <sec>/auto, exit.\n")
 
     def _interpret(results):
         results_json = _sanitize_for_gpt(json.dumps(results, indent=2))
@@ -484,11 +489,11 @@ def ai_chat():
 
     def _start_poll_thread(cmd_id, command_desc):
         def _poll():
-            poll_interval = common.get_channel().poll_interval()
             deadline = time.time() + 300
 
             while time.time() < deadline:
-                time.sleep(poll_interval)
+                # Re-query each cycle so operator 'refresh' commands take effect immediately.
+                time.sleep(common.get_channel().refresh_interval())
                 try:
                     rows = common.read_outbox()
                 except Exception:
@@ -501,7 +506,12 @@ def ai_chat():
                             seen_ids.add(hb_id)
                             hb_client = row.get("client_id", "unknown")
                             try:
-                                client_os_info[hb_client] = json.loads(row.get("result", "{}"))
+                                info = json.loads(row.get("result", "{}"))
+                                client_os_info[hb_client] = info
+                                if "cycle_interval_sec" in info:
+                                    common.get_channel().set_refresh_interval(
+                                        float(info["cycle_interval_sec"]), manual=False
+                                    )
                             except Exception:
                                 pass
 
@@ -604,6 +614,29 @@ def ai_chat():
             label = f"{C_GREEN}raw{C_RESET}" if output_mode == "raw" else f"{C_CYAN}interpreted{C_RESET}"
             print(f"  Current output mode: {label}\n")
             continue
+
+        # refresh <sec> / refresh auto / refresh
+        if cmd.startswith("refresh"):
+            ch = common.get_channel()
+            arg = cmd[len("refresh"):].strip()
+            if arg == "auto":
+                ch.clear_refresh_override()
+                print(f"  {C_GREEN}Refresh override cleared — interval will sync to next heartbeat.{C_RESET}\n")
+            elif arg == "":
+                interval = ch.refresh_interval()
+                source = f"{C_YELLOW}manual override{C_RESET}" if ch._manual_override else f"{C_CYAN}heartbeat sync{C_RESET}"
+                print(f"  Refresh interval: {C_BOLD}{interval:.1f}s{C_RESET} ({source})\n")
+            else:
+                try:
+                    secs = float(arg)
+                    if secs <= 0:
+                        raise ValueError
+                    ch.set_refresh_interval(secs, manual=True)
+                    print(f"  {C_GREEN}Refresh interval set to {secs:.1f}s (manual override — heartbeat sync paused).{C_RESET}\n")
+                except ValueError:
+                    print(f"  {C_RED}Usage: refresh <seconds>  |  refresh auto  |  refresh{C_RESET}\n")
+            continue
+
         if cmd in ("do it", "yes", "go", "y"):
             with pending_suggestion_lock:
                 sugg = pending_suggestion[0]

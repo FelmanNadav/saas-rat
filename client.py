@@ -14,12 +14,14 @@ import common
 _DEFAULT_HEARTBEAT_EVERY = 100
 
 # Known config keys and their defaults — all in-memory only, no disk persistence
-_KNOWN_CONFIG_KEYS = {"poll_interval_sec", "poll_jitter_min", "poll_jitter_max", "client_id", "heartbeat_every"}
+# cycle_* keys control the client's own sleep between poll cycles.
+# These are reported in heartbeats so the server can sync its refresh interval.
+_KNOWN_CONFIG_KEYS = {"cycle_interval_sec", "cycle_jitter_min", "cycle_jitter_max", "client_id", "heartbeat_every"}
 
 _client_config = {
-    "poll_interval_sec": "1",
-    "poll_jitter_min": "2",
-    "poll_jitter_max": "3",
+    "cycle_interval_sec": "30",
+    "cycle_jitter_min":   "5",
+    "cycle_jitter_max":   "15",
     "client_id": os.environ.get("CLIENT_ID", "NADAV"),
     "heartbeat_every": str(_DEFAULT_HEARTBEAT_EVERY),
 }
@@ -172,11 +174,20 @@ def dispatch(task):
 
 
 def send_heartbeat():
+    payload = _system_info()
+    # Include current cycle timing so the server can sync its refresh interval.
+    # See ideas/sync_refresh_interval.md — Option B (heartbeat carries client timing).
+    try:
+        payload["cycle_interval_sec"] = float(_client_config.get("cycle_interval_sec", 30))
+        payload["cycle_jitter_min"]   = float(_client_config.get("cycle_jitter_min",   5))
+        payload["cycle_jitter_max"]   = float(_client_config.get("cycle_jitter_max",  15))
+    except ValueError:
+        pass
     result = {
         "command_id": f"heartbeat-{uuid.uuid4()}",
         "client_id": _client_config.get("client_id", "unknown"),
         "status": "heartbeat",
-        "result": json.dumps(_system_info()),
+        "result": json.dumps(payload),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     ok = common.write_form(result)
@@ -279,9 +290,9 @@ def main():
 
         # Sleep using current _client_config (may have been updated by a config command)
         try:
-            interval = float(_client_config.get("poll_interval_sec", 30))
-            jitter_min = float(_client_config.get("poll_jitter_min", 5))
-            jitter_max = float(_client_config.get("poll_jitter_max", 15))
+            interval   = float(_client_config.get("cycle_interval_sec", 30))
+            jitter_min = float(_client_config.get("cycle_jitter_min",    5))
+            jitter_max = float(_client_config.get("cycle_jitter_max",   15))
         except ValueError:
             interval, jitter_min, jitter_max = 30, 5, 15
 

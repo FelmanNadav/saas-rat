@@ -106,22 +106,63 @@ class TestGetFragmenter:
 
 
 # ---------------------------------------------------------------------------
-# SheetsChannel.poll_interval
+# refresh_interval — channel base + SheetsChannel
 # ---------------------------------------------------------------------------
 
-class TestSheetsChannelPollInterval:
-    def test_sheets_poll_interval_is_five(self):
-        from channel.sheets import SheetsChannel
-        assert SheetsChannel().poll_interval() == 5.0
+def _make_stub_channel():
+    from channel.base import Channel
+    class StubChannel(Channel):
+        def read_inbox(self): pass
+        def read_outbox(self): pass
+        def write_result(self, d): pass
+        def write_task(self, d): pass
+        def build_outbox_fragments(self, d, c): pass
+        def build_inbox_fragments(self, d, c): pass
+    return StubChannel()
 
-    def test_base_channel_default_is_thirty(self):
-        from channel.base import Channel
-        # Concrete stub to access the base default
-        class StubChannel(Channel):
-            def read_inbox(self): pass
-            def read_outbox(self): pass
-            def write_result(self, d): pass
-            def write_task(self, d): pass
-            def build_outbox_fragments(self, d, c): pass
-            def build_inbox_fragments(self, d, c): pass
-        assert StubChannel().poll_interval() == 30.0
+
+class TestRefreshInterval:
+    def test_sheets_default_is_five(self):
+        from channel.sheets import SheetsChannel
+        assert SheetsChannel().refresh_interval() == 5.0
+
+    def test_base_default_is_thirty(self):
+        ch = _make_stub_channel()
+        assert ch.refresh_interval() == 30.0
+
+    def test_set_refresh_interval_no_override_updates_value(self):
+        ch = _make_stub_channel()
+        ch.set_refresh_interval(10.0, manual=False)
+        assert ch.refresh_interval() == 10.0
+
+    def test_set_refresh_interval_manual_updates_value_and_sets_flag(self):
+        ch = _make_stub_channel()
+        ch.set_refresh_interval(20.0, manual=True)
+        assert ch.refresh_interval() == 20.0
+        assert ch._manual_override is True
+
+    def test_set_refresh_interval_non_manual_blocked_by_override(self):
+        ch = _make_stub_channel()
+        ch.set_refresh_interval(20.0, manual=True)   # set override
+        ch.set_refresh_interval(99.0, manual=False)  # heartbeat attempt — must be ignored
+        assert ch.refresh_interval() == 20.0
+
+    def test_set_refresh_interval_manual_overrides_existing_manual(self):
+        ch = _make_stub_channel()
+        ch.set_refresh_interval(20.0, manual=True)
+        ch.set_refresh_interval(40.0, manual=True)
+        assert ch.refresh_interval() == 40.0
+
+    def test_clear_refresh_override_allows_heartbeat_sync(self):
+        ch = _make_stub_channel()
+        ch.set_refresh_interval(20.0, manual=True)
+        ch.clear_refresh_override()
+        assert ch._manual_override is False
+        ch.set_refresh_interval(7.0, manual=False)
+        assert ch.refresh_interval() == 7.0
+
+    def test_clear_refresh_override_idempotent(self):
+        ch = _make_stub_channel()
+        ch.clear_refresh_override()
+        ch.clear_refresh_override()
+        assert ch._manual_override is False
