@@ -181,6 +181,68 @@ The server runs in `mode confirm` (default) — the AI proposes a command and th
 
 ---
 
+## Scenario 5 — Windows Target
+
+**Goal:** Demonstrate cross-platform operation. The operator uses identical natural language — the AI adapts the translated command to the target OS automatically. No Windows knowledge required from the operator.
+
+The client binary for this scenario was built with `packager.py` on a Windows machine using the `basic` profile, deployed as a standalone `.exe`. No Python installation on the target.
+
+---
+
+**Prompt 5.1 — Initial Recon**
+
+```
+> list all folders in the public user directory
+```
+
+<!-- SCREENSHOT: AI console — AI translates to "dir C:\Users\Public" (Windows syntax, not ls) -->
+
+<!-- SCREENSHOT: Interpreted result — AI summarizes folders found in plain English -->
+
+---
+
+**Prompt 5.2 — System Identity**
+
+```
+> what kind of machine is this and who am I running as
+```
+
+<!-- SCREENSHOT: AI console — translated to "whoami" + "systeminfo | findstr /B /C:"OS Name" /C:"OS Version" /C:"System Type"" -->
+
+<!-- SCREENSHOT: Interpreted result — Windows version, architecture, current user -->
+
+---
+
+**Prompt 5.3 — Network**
+
+```
+> show me the network configuration
+```
+
+<!-- SCREENSHOT: AI console — translated to "ipconfig /all" instead of ip addr -->
+
+<!-- SCREENSHOT: Interpreted result — interfaces, IPs, DNS servers summarized -->
+
+---
+
+**Prompt 5.4 — Running Processes**
+
+```
+> what processes are running
+```
+
+<!-- SCREENSHOT: AI console — translated to "tasklist" instead of ps aux -->
+
+<!-- SCREENSHOT: Interpreted result — AI highlights notable processes -->
+
+---
+
+> **Key point:** The operator typed the same prompts as in the Linux scenarios. The AI detected the Windows environment from the first `system_info` heartbeat and adapted all subsequent command translations accordingly. The operator never wrote a Windows command.
+
+<!-- SCREENSHOT: Side-by-side of the sheet outbox tab — Linux client_id row and Windows client_id row both present, results from the same session -->
+
+---
+
 ## The Google Sheet
 
 The sheet is the underlying transport — everything above flows through it.
