@@ -9,8 +9,8 @@ from wizard import core
 def _validate_firebase_url(v):
     if not v.startswith("https://"):
         return "Must start with https://"
-    if ".firebaseio.com" not in v:
-        return "Expected a Firebase Realtime Database URL (*.firebaseio.com)"
+    if ".firebaseio.com" not in v and ".firebasedatabase.app" not in v:
+        return "Expected a Firebase Realtime Database URL (*.firebaseio.com or *.firebasedatabase.app)"
 
 
 def _validate_path(v):
@@ -59,7 +59,8 @@ class FirebaseWizard(WizardChannel):
         core.info("  5. Choose a region, then select 'Start in test mode'")
         core.info("     (rules: public read/write — encryption keeps content secure)")
         core.info("  6. Your database URL appears at the top of the page:")
-        core.info("     https://<project-id>-default-rtdb.firebaseio.com")
+        core.info("     US:  https://<project-id>-default-rtdb.firebaseio.com")
+        core.info("     EU:  https://<project-id>-default-rtdb.<region>.firebasedatabase.app")
         core.pause()
 
         firebase_url = core.ask(
