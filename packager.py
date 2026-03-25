@@ -177,7 +177,8 @@ def main():
         size_mb = os.path.getsize(binary) / 1024 / 1024
         print(f"\n[packager] Binary: {binary}  ({size_mb:.1f} MB)")
         print(f"[packager] Run on target:")
-        print(f"  SPREADSHEET_ID=xxx FORMS_URL=xxx ./{output_name}{ext}")
+        print(f"  PYTHONUNBUFFERED=1 SPREADSHEET_ID=xxx FORMS_URL=xxx ./{output_name}{ext}")
+        print(f"  (PYTHONUNBUFFERED=1 ensures logs appear immediately)")
     else:
         print("\n[packager] Build failed — check PyInstaller output above.")
         sys.exit(1)
