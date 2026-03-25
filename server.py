@@ -525,6 +525,9 @@ def ai_chat():
                         if cmd_id in cmd_id_to_idx:
                             cmd_log[cmd_id_to_idx[cmd_id]]["result"] = _result_summary(row)
                         _update_session_facts(cmd_id, row)
+                        # Remove the inbox entry now that the result is confirmed.
+                        # No-op for channels that don't support deletion (Sheets).
+                        common.delete_task_entry(cmd_id)
 
                         status = row.get("status", "?")
                         color = C_GREEN if status == "success" else C_RED

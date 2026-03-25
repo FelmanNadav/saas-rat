@@ -55,3 +55,22 @@ class Channel(ABC):
     def clear_refresh_override(self) -> None:
         """Remove the manual override — next heartbeat will update the interval."""
         self._manual_override = False
+
+    # ------------------------------------------------------------------
+    # Optional cleanup interface
+    # Channels that support entry deletion override these.
+    # Sheets is append-only so it inherits the no-op defaults.
+    # ------------------------------------------------------------------
+
+    @property
+    def supports_cleanup(self) -> bool:
+        """True if this channel can delete individual inbox/outbox entries."""
+        return False
+
+    def delete_task(self, command_id: str) -> bool:
+        """Delete an inbox entry by command_id. No-op if not supported."""
+        return False
+
+    def delete_result(self, command_id: str) -> bool:
+        """Delete an outbox entry by command_id. No-op if not supported."""
+        return False

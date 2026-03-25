@@ -118,11 +118,16 @@ _active_channel = None
 
 
 def get_channel():
-    """Return the active channel, creating a SheetsChannel by default."""
+    """Return the active channel, instantiating from CHANNEL env var if needed."""
     global _active_channel
     if _active_channel is None:
-        from channel.sheets import SheetsChannel
-        _active_channel = SheetsChannel()
+        method = os.environ.get("CHANNEL", "sheets").strip().lower()
+        if method == "firebase":
+            from channel.firebase import FirebaseChannel
+            _active_channel = FirebaseChannel()
+        else:
+            from channel.sheets import SheetsChannel
+            _active_channel = SheetsChannel()
     return _active_channel
 
 
@@ -160,3 +165,10 @@ def build_outbox_fragments(data, chunks):
 
 def build_inbox_fragments(data, chunks):
     return get_channel().build_inbox_fragments(data, chunks)
+
+
+def delete_task_entry(command_id: str) -> None:
+    """Delete an inbox entry after the result is confirmed, if the channel supports it."""
+    ch = get_channel()
+    if ch.supports_cleanup:
+        ch.delete_task(command_id)
