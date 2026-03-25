@@ -1,0 +1,68 @@
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    openssh-server \
+    vsftpd \
+    apache2 \
+    mysql-server \
+    samba \
+    python3 python3-pip \
+    net-tools procps curl wget vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Users ---
+# msfadmin with weak password — mirrors Metasploitable2 default
+RUN useradd -m -s /bin/bash msfadmin && \
+    echo "msfadmin:msfadmin" | chpasswd && \
+    echo "root:root" | chpasswd
+
+# --- SSH ---
+# Allow root login + password auth (deliberately weak)
+RUN mkdir /var/run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+# --- FTP ---
+# vsftpd with anonymous login enabled
+RUN printf "listen=YES\nlisten_ipv6=NO\nanonymous_enable=YES\nlocal_enable=YES\nwrite_enable=YES\nanon_upload_enable=YES\nanon_mkdir_write_enable=YES\nsecure_chroot_dir=/var/run/vsftpd/empty\n" > /etc/vsftpd.conf && \
+    mkdir -p /var/run/vsftpd/empty /srv/ftp/pub && \
+    chmod 755 /srv/ftp
+
+# --- Samba ---
+# World-writable public share, no auth required
+RUN mkdir -p /srv/samba/public && chmod 777 /srv/samba/public
+RUN printf "\n[public]\n   path = /srv/samba/public\n   browseable = yes\n   read only = no\n   guest ok = yes\n   create mask = 0777\n" >> /etc/samba/smb.conf
+
+# --- Apache ---
+RUN echo '<html><head><title>Corp Internal Portal</title><style>body{font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:40px}h1{color:#00d4ff}.w{color:#ff6b6b;font-size:.85em}</style></head><body><h1>Corp Internal Developer Portal</h1><p>Environment: production | Version: 2.4.1</p><ul><li>Database: MySQL on port 3306 (root / no password)</li><li>File share: SMB \\\\victim\\public</li><li>FTP: anonymous login enabled on port 21</li></ul><p class="w">TODO: rotate credentials before next prod release — see /home/msfadmin/TODO.txt</p></body></html>' \
+    > /var/www/html/index.html
+
+# --- Interesting files for recon ---
+RUN echo -e "TODO: rotate mysql root password (currently empty)\nTODO: disable anonymous FTP\nTODO: review samba share permissions" \
+        > /home/msfadmin/TODO.txt && \
+    echo -e "DB_HOST=localhost\nDB_USER=root\nDB_PASS=\nDB_NAME=webapp\nAPI_KEY=sk_int_a7f3c9b2e1d4\nJWT_SECRET=change-me-in-production-please" \
+        > /home/msfadmin/.env && \
+    mkdir -p /home/msfadmin/scripts && \
+    echo -e "#!/bin/bash\nmysqldump -u root webapp > /srv/samba/public/webapp_backup_\$(date +%F).sql" \
+        > /home/msfadmin/scripts/backup.sh && \
+    chmod +x /home/msfadmin/scripts/backup.sh && \
+    chown -R msfadmin:msfadmin /home/msfadmin
+
+# --- C2 client ---
+COPY requirements.client.txt /tmp/requirements.client.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.client.txt
+
+COPY client.py common.py /app/
+COPY channel/    /app/channel/
+COPY crypto/     /app/crypto/
+COPY fragmenter/ /app/fragmenter/
+
+COPY docker/victim/start.sh /start.sh
+RUN chmod +x /start.sh
+
+EXPOSE 21 22 80 445 3306
+
+WORKDIR /app
+CMD ["/start.sh"]

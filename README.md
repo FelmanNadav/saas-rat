@@ -50,8 +50,15 @@ The demo runs the client inside Docker (simulates a remote compromised machine) 
 ```
 Your terminal (server.py ai)
         ↓  Google Sheets  ↑
-  Docker container (client)
+  Docker container (victim)
 ```
+
+Two container options — pick one:
+
+| Container | Command | What it is |
+|---|---|---|
+| **victim** | `docker compose up victim` | Ubuntu 20.04 with deliberately misconfigured services (SSH, FTP, MySQL, Samba, Apache). Recommended for demos. |
+| **client** | `docker compose up client` | Minimal python:3.11-slim. No extra services — for basic C2 testing. |
 
 ### Prerequisites
 
@@ -71,8 +78,8 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # Drop the .env file you received into the project root
-# Then start the client container:
-docker compose up --build -d
+# Then start the victim container:
+docker compose up --build -d victim
 
 # Wait ~5 seconds for the client to connect, then start the server:
 python server.py ai
@@ -89,8 +96,8 @@ pip install -r requirements.txt
 # Run the interactive setup wizard (~5 min, requires a Google account):
 python setup_wizard.py
 
-# Then start the client container:
-docker compose up --build -d
+# Then start the victim container:
+docker compose up --build -d victim
 
 # Wait ~5 seconds, then start the server:
 python server.py ai
@@ -152,8 +159,12 @@ saas-rat/
 ├── ideas/               # Design docs for planned features
 ├── .env                 # Runtime config (not committed)
 ├── .env.example         # Template with all required and optional keys
-├── Dockerfile           # Client container definition
-├── docker-compose.yml   # Runs client container with .env config
+├── Dockerfile           # Minimal client container (python:3.11-slim)
+├── Dockerfile.victim    # Full victim environment (Ubuntu 20.04 + services)
+├── docker-compose.yml   # Defines both client and victim services
+├── docker/
+│   └── victim/
+│       └── start.sh     # Victim container entrypoint (starts services + client)
 └── requirements.txt     # Python dependencies
 ```
 
@@ -216,11 +227,30 @@ python server.py --help
 source venv/bin/activate
 python client.py
 
-# Via Docker
-docker compose up --build
+# Minimal Docker container (python:3.11-slim, no extra services)
+docker compose up --build client
+
+# Full victim environment (Ubuntu 20.04 + SSH/FTP/MySQL/Samba/Apache)
+docker compose up --build victim
 ```
 
 The client sends a heartbeat on startup and every N cycles (configurable). Each heartbeat includes system info and cycle timing — the server uses this to automatically sync its refresh interval.
+
+### Victim container
+
+`Dockerfile.victim` builds a Ubuntu 20.04 image with deliberately misconfigured services that mirror a classic Metasploitable2-style target. Useful for demos where realistic recon output matters.
+
+| Service | Port | Access |
+|---|---|---|
+| Apache | 80 (→ 8080 on host) | `http://localhost:8080` |
+| SSH | 22 | `msfadmin:msfadmin` / `root:root` |
+| FTP | 21 | anonymous login |
+| MySQL | 3306 | `root` / empty password |
+| Samba | 445 | guest ok, world-writable share |
+
+Pre-seeded state: MySQL `webapp` database with a `users` table (MD5-hashed passwords), `/home/msfadmin/.env` with fake API keys, `/home/msfadmin/TODO.txt` with credential rotation reminders.
+
+The C2 client runs inside the container. From the operator's perspective it is an ordinary connected client — the services are there to make AI console recon scenarios realistic.
 
 ### Dispatch a command
 
