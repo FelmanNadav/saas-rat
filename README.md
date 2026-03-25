@@ -1,6 +1,8 @@
-# Sheets C2
+# SaaS RAT — A Pluggable Remote Access Framework
 
-A lightweight remote task execution system that uses Google Sheets as a covert message broker. A server operator dispatches shell commands to a remote client through a shared spreadsheet. The client polls for tasks, executes them, and writes results back. An AI-powered operator console (GPT-4o) translates natural language into commands and interprets results in real time.
+A framework for building covert remote access tools that route command-and-control traffic through legitimate SaaS platforms. The pluggable architecture supports swappable channels, encryption methods, and fragmentation strategies — allowing operators to adapt the transport layer without changing the core.
+
+**Currently implemented channel: Google Sheets.** Commands are dispatched through a shared spreadsheet. The client polls for tasks, executes them, and writes results back. An AI-powered operator console (GPT-4o) translates natural language into commands and interprets results in real time. All traffic goes to `docs.google.com`.
 
 Built for security research and authorized penetration testing in controlled lab environments.
 
@@ -91,8 +93,6 @@ python packager.py
 | `pyarmor` | PyArmor encryption + PyInstaller | Encrypted bytecode — pyarmor_runtime .so required to decrypt |
 | `nuitka` | Nuitka → native C binary | No Python bytecode — requires disassembler |
 
-**Recommended test sequence:** basic → upx → pyarmor → nuitka. Stop when your defense product fires — that tells you exactly what detection level you need.
-
 All profiles support **silent mode** (strips all console output — defeats sandbox stdout monitoring).
 
 ### Packaging prerequisites
@@ -108,10 +108,19 @@ sudo apt install upx patchelf            # System deps (Linux)
 
 ## Prerequisites
 
-- Python 3.8+
+**Core (server + client):**
+- Python 3.9+
 - A Google account
 - Internet access to `docs.google.com`
-- An OpenAI API key (for `server.py ai` mode only)
+
+**AI console only:**
+- An OpenAI API key (`server.py ai`)
+
+**Docker client:**
+- Docker + Docker Compose (`docker compose up --build`)
+
+**Client packaging (`packager.py`):**
+- See [Packaging prerequisites](#packaging-prerequisites)
 
 ---
 
@@ -273,6 +282,8 @@ python server.py ai
 
 Type commands in plain English. GPT-4o translates them into structured actions, dispatches to the client, and interprets results as they arrive.
 
+> **AI disclaimer:** GPT-4o is non-deterministic — the same prompt may produce different commands across sessions, and the model can misinterpret ambiguous instructions. Always review proposed commands before execution. Use `mode confirm` (the default) when in doubt — it shows the exact command that will be sent and requires explicit approval before dispatch. Commands matching destructive patterns (`rm -rf`, `kill -9`, `dd`, `mkfs`, `shutdown`) are always intercepted and require confirmation regardless of mode.
+
 ---
 
 ## AI Console Reference
@@ -367,8 +378,9 @@ Applied transparently at the channel boundary. All field values are encrypted be
 | `plaintext` (default) | No encryption — cleartext values in sheet |
 | `fernet` | AES-128-CBC + HMAC-SHA256, key from `ENCRYPTION_KEY` |
 
+The setup wizard generates the Fernet key automatically and writes it to `.env`. To generate one manually:
+
 ```bash
-# Generate a Fernet key
 python crypto/fernet.py
 ```
 
@@ -424,7 +436,7 @@ The refresh interval is re-queried on every server cycle, so changes take effect
 
 - Google Forms is append-only — inbox and outbox grow until manually cleared (use `sheets_c2_cleanup.gs`)
 - Result fields truncated at ~4000 characters (Google Forms field size limit)
-- Background result pollers time out after 5 minutes with no client response
+- **Background result pollers time out after 5 minutes.** When a command is sent, the server spawns a background thread that watches the outbox for a matching result. If no result arrives within 5 minutes — because the client is offline, slow, or the command is long-running — the thread stops watching. The result is **not lost** (it will appear in the sheet when the client eventually responds), but it won't surface automatically. Retrieve it manually with `server.py collect --id <command_id>`.
 - **Single client per spreadsheet** — multi-client routing is not implemented. The `target` and `client_id` fields exist in the sheet schema but the server always broadcasts to all clients and collects from all clients indiscriminately. Running two clients (e.g. local + Docker) against the same sheet means every command executes on both and you get two results back. This is a known limitation — multi-client routing is planned (see `ideas/pluggable_channels.md`). For now: run one client at a time.
 - The `form_timestamp` column added by Google Forms cannot be removed and is always visible
 
@@ -443,6 +455,8 @@ See `ideas/` for detailed design docs.
 | Setup wizard (auto + manual) | Done |
 | Self-synchronising server refresh interval | Done |
 | `switch_channel` command (mid-op channel pivot) | Planned |
+| `switch_encryption` command (change crypto mid-op) | Planned |
+| `switch_fragmenter` command (change fragmentation mid-op) | Planned |
 | Firebase backend | Planned |
 | Multi-client routing via `target` field | Planned |
 | Client packaging (basic, UPX, PyArmor, Nuitka profiles) | Done |
