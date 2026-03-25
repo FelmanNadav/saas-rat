@@ -452,7 +452,7 @@ See `ideas/` for detailed design docs.
 | Victim demo container (Ubuntu 20.04, Metasploitable2-style) | Done |
 | Sheets auto-cleanup via service account (per-message row deletion) | Done |
 | Firebase auto-cleanup (inbox + outbox after confirmed result) | Done |
-| `switch_channel` command (mid-op channel pivot) | Planned |
+| `switch_channel` command (mid-op channel pivot) | Done |
 | `switch_encryption` command (change crypto mid-op) | Planned |
 | `switch_fragmenter` command (change fragmentation mid-op) | Planned |
 | Multi-client routing via `target` field | Planned |
