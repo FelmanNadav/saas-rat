@@ -1,0 +1,17 @@
+venv/
+.env
+.env.bak
+.env.example
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+tests/
+ideas/
+server.py
+system_prompt.txt
+setup_wizard.py
+wizard/
+*.gs
+.git/
+README.md

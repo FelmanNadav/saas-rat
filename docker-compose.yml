@@ -1,0 +1,5 @@
+services:
+  client:
+    build: .
+    env_file: .env        # passes all .env vars into the container as environment variables
+    restart: unless-stopped
