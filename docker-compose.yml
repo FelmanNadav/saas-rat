@@ -12,7 +12,7 @@ services:
   # Full victim environment — Ubuntu 20.04 with deliberately misconfigured services.
   # Mirrors Metasploitable2: SSH (root/root), FTP (anonymous), MySQL (root/empty),
   # Samba (open share), Apache on port 80.
-  # Use this for the demo: docker compose up victim
+  # Use this for the demo: docker compose up --build victim
   victim:
     build:
       context: .
