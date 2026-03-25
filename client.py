@@ -19,11 +19,11 @@ _DEFAULT_HEARTBEAT_EVERY = 100
 _KNOWN_CONFIG_KEYS = {"cycle_interval_sec", "cycle_jitter_min", "cycle_jitter_max", "client_id", "heartbeat_every"}
 
 _client_config = {
-    "cycle_interval_sec": "30",
-    "cycle_jitter_min":   "5",
-    "cycle_jitter_max":   "15",
+    "cycle_interval_sec": "1",
+    "cycle_jitter_min":   "2",
+    "cycle_jitter_max":   "3",
     "client_id": os.environ.get("CLIENT_ID", "NADAV"),
-    "heartbeat_every": str(_DEFAULT_HEARTBEAT_EVERY),
+    "heartbeat_every": "5",
 }
 
 # Fragment send queue — in-memory only, lost on restart by design

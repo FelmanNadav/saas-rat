@@ -837,11 +837,11 @@ Available commands:
   system_info            Return OS, hostname, arch, Python version
   echo                   Echo back the payload  {"msg": "..."}
   shell                  Run a shell command     {"cmd": "...", "stdin": "..."}
-  config                 Update client settings  {"cycle_interval_sec": "30",
-                                                  "cycle_jitter_min": "5",
-                                                  "cycle_jitter_max": "15",
+  config                 Update client settings  {"cycle_interval_sec": "1",
+                                                  "cycle_jitter_min": "2",
+                                                  "cycle_jitter_max": "3",
                                                   "client_id": "NADAV",
-                                                  "heartbeat_every": "100"}
+                                                  "heartbeat_every": "5"}
 
 Collect options:
   --id <command_id>      Filter results to a specific command UUID

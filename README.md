@@ -311,10 +311,10 @@ Edit `system_prompt.txt` — loaded fresh at each `server.py ai` session.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `cycle_interval_sec` | `30` | Base sleep between client cycles (seconds) |
-| `cycle_jitter_min` | `5` | Minimum random jitter added per cycle (seconds) |
-| `cycle_jitter_max` | `15` | Maximum random jitter added per cycle (seconds) |
-| `heartbeat_every` | `100` | Send a heartbeat every N cycles |
+| `cycle_interval_sec` | `1` | Base sleep between client cycles (seconds) |
+| `cycle_jitter_min` | `2` | Minimum random jitter added per cycle (seconds) |
+| `cycle_jitter_max` | `3` | Maximum random jitter added per cycle (seconds) |
+| `heartbeat_every` | `5` | Send a heartbeat every N cycles |
 | `client_id` | `NADAV` | Client identifier reported in results |
 
 Only listed keys are accepted — unknown keys are silently ignored. All changes are in-memory; re-send config after client restart.
