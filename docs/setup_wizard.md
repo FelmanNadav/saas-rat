@@ -57,6 +57,8 @@ Step-by-step browser instructions. The wizard asks for each value individually. 
 
 The wizard walks through creating a Firebase Realtime Database in the Firebase console, setting public read/write rules (encryption handles content security), and runs a live connection test before writing env vars. No Apps Script required.
 
+Firebase also supports optional field name obfuscation via `FIREBASE_INBOX_COLUMN_MAP` and `FIREBASE_OUTBOX_COLUMN_MAP`. Set these manually in `.env` after wizard setup — use the same random strings as your Sheets column maps, or generate new ones. Both client and server must use identical maps.
+
 See [docs/firebase.md](firebase.md) for the full Firebase channel reference.
 
 ### 4. Fragmentation

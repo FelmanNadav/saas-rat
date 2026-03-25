@@ -339,9 +339,11 @@ INBOX_FORMS_URL=         # Inbox form URL ending in /formResponse
 INBOX_FORMS_FIELD_MAP=   # JSON: {"command_id":"entry.X","command":"entry.X",...}
 
 # Firebase (CHANNEL=firebase)
-FIREBASE_URL=            # https://<project-id>-default-rtdb.firebaseio.com
-FIREBASE_INBOX_PATH=     # c2/inbox (default)
-FIREBASE_OUTBOX_PATH=    # c2/outbox (default)
+FIREBASE_URL=                  # https://<project-id>-default-rtdb.firebaseio.com
+FIREBASE_INBOX_PATH=           # c2/inbox (default)
+FIREBASE_OUTBOX_PATH=          # c2/outbox (default)
+FIREBASE_INBOX_COLUMN_MAP=     # JSON: {"command_id":"f3a7k",...} — optional field name obfuscation
+FIREBASE_OUTBOX_COLUMN_MAP=    # JSON: {"command_id":"p7c4s",...} — optional field name obfuscation
 
 # Encryption
 ENCRYPTION_METHOD=       # "plaintext" (default) or "fernet"
