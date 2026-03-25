@@ -33,6 +33,40 @@ def _translate_row(row, column_map):
     return {reverse.get(k, k): v for k, v in row.items()}
 
 
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+# Headers for GET requests (CSV export reads) — looks like browser navigation
+_GET_HEADERS = {
+    "User-Agent":                _UA,
+    "Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language":           "en-US,en;q=0.9",
+    "Accept-Encoding":           "gzip, deflate, br",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Site":            "none",
+    "Sec-Fetch-Mode":            "navigate",
+    "Sec-Fetch-Dest":            "document",
+}
+
+
+def _post_headers(form_url):
+    """Headers for form POST requests — looks like a Chrome browser submitting a Google Form."""
+    return {
+        "User-Agent":      _UA,
+        "Accept":          "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Origin":          "https://docs.google.com",
+        "Referer":         form_url,
+        "Sec-Fetch-Site":  "same-origin",
+        "Sec-Fetch-Mode":  "cors",
+        "Sec-Fetch-Dest":  "empty",
+    }
+
+
 def sheet_url(gid):
     """Build CSV export URL for a tab."""
     sid = os.environ["SPREADSHEET_ID"]
@@ -42,7 +76,7 @@ def sheet_url(gid):
 def read_tab(gid, timeout=15):
     """Fetch a tab as list of dicts via CSV export."""
     url = sheet_url(gid)
-    resp = requests.get(url, timeout=timeout)
+    resp = requests.get(url, headers=_GET_HEADERS, timeout=timeout)
     resp.raise_for_status()
     reader = csv.DictReader(io.StringIO(resp.text))
     rows = []
@@ -108,7 +142,7 @@ class SheetsChannel(Channel):
         field_map = json.loads(os.environ["FORMS_FIELD_MAP"])
         payload = {entry_id: encrypted.get(field, "") for field, entry_id in field_map.items()}
         try:
-            resp = requests.post(url, data=payload, timeout=15)
+            resp = requests.post(url, data=payload, headers=_post_headers(url), timeout=15)
             return resp.ok or resp.status_code in (301, 302, 303)
         except Exception as e:
             print(f"[error] write_result failed: {e}")
@@ -121,7 +155,7 @@ class SheetsChannel(Channel):
         field_map = json.loads(os.environ["INBOX_FORMS_FIELD_MAP"])
         payload = {entry_id: encrypted.get(field, "") for field, entry_id in field_map.items()}
         try:
-            resp = requests.post(url, data=payload, timeout=15)
+            resp = requests.post(url, data=payload, headers=_post_headers(url), timeout=15)
             return resp.ok or resp.status_code in (301, 302, 303)
         except Exception as e:
             print(f"[error] write_task failed: {e}")

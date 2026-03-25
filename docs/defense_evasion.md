@@ -155,7 +155,7 @@ This is where static and binary evasion reach their limit.
 | Domain blocking (`docs.google.com`) | Impractical — breaks Google Workspace |
 | TLS inspection + content analysis | Would expose form field values — detectable if patterns are known |
 | Volume/frequency anomaly detection | Partially mitigated. The operator has full runtime control over beacon timing via the `config` command: `cycle_interval_sec` (base sleep), `cycle_jitter_min` and `cycle_jitter_max` (random jitter added per cycle), and `heartbeat_every` (heartbeat frequency). A fixed 1s interval looks like beaconing. Configuring a 60s base with 30-90s jitter produces an irregular, human-like pattern that is significantly harder to fingerprint as automated traffic. The server auto-syncs its refresh interval to match, so result visibility is not sacrificed. |
-| User agent / request header analysis | Currently a gap — the client uses `requests` defaults (user agent: `python-requests/2.x`). A TLS-inspecting proxy flags this immediately. **Planned fix: request header normalization** (see Planned Evasion Techniques below). |
+| User agent / request header analysis | Mitigated. All requests use Chrome-accurate headers — User-Agent, Origin, Referer, Sec-Fetch-* — indistinguishable from a browser submitting a real Google Form. |
 | Behavioral correlation | A process that regularly POSTs to Google Forms and has no browser UI is anomalous |
 
 **Column obfuscation and Fernet encryption** handle the TLS inspection case — even if an inspector decrypts the HTTPS payload, they see random column names and encrypted field values. Without the key, the content is opaque.
@@ -178,7 +178,7 @@ The following techniques were designed but not yet implemented. They address det
 
 ---
 
-### Request Header Normalization *(planned, high priority)*
+### Request Header Normalization *(implemented)*
 
 **Problem:** The client sends HTTP requests with Python's default headers. The user agent string alone (`python-requests/2.x`) is sufficient for a TLS-inspecting proxy to identify the traffic as non-browser. Combined with the absence of browser-specific headers (`Sec-Fetch-*`, `Origin`, `Referer`), the HTTP fingerprint is distinct from legitimate Google Forms usage.
 
