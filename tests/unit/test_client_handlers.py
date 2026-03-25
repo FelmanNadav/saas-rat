@@ -6,15 +6,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def isolate_client(tmp_path, monkeypatch):
-    """Reset module-level client state and redirect file I/O to tmp_path."""
-    monkeypatch.chdir(tmp_path)
+def isolate_client(monkeypatch):
+    """Reset module-level client state between tests."""
     import client
     client._client_config.update({
         "poll_interval_sec": "30",
         "poll_jitter_min": "5",
         "poll_jitter_max": "15",
         "client_id": "test-worker",
+        "heartbeat_every": "100",
     })
     client._send_queue.clear()
 
@@ -148,13 +148,11 @@ class TestHandleConfig:
         assert "current" in result
         assert result["current"]["poll_interval_sec"] == "20"
 
-    def test_persisted_to_disk(self, tmp_path):
-        from client import handle_config, _CONFIG_FILE
+    def test_no_disk_artifact(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        from client import handle_config
         handle_config({"client_id": "saved-id"})
-        config_path = tmp_path / _CONFIG_FILE
-        assert config_path.exists()
-        saved = json.loads(config_path.read_text())
-        assert saved["client_id"] == "saved-id"
+        assert not any(tmp_path.iterdir()), "handle_config must not write any files to disk"
 
     def test_values_coerced_to_string(self):
         from client import handle_config, _client_config
@@ -197,6 +195,18 @@ class TestDispatch:
         from client import dispatch
         result = dispatch(self._task("echo", {"msg": "small"}))
         assert "_fragments" not in result
+
+    def test_send_queue_no_disk_artifact(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FRAGMENT_METHOD", "fixed")
+        monkeypatch.setenv("FRAGMENT_CHUNK_SIZE", "10")
+        from client import dispatch, _send_queue
+        result = dispatch(self._task("echo", {"msg": "x" * 200}))
+        # Simulate main loop enqueuing remaining fragments
+        frags = result.pop("_fragments", [])
+        if len(frags) > 1:
+            _send_queue.extend(frags[1:])
+        assert not any(tmp_path.iterdir()), "send queue must not write any files to disk"
 
     def test_large_result_produces_fragments(self, monkeypatch):
         monkeypatch.setenv("FRAGMENT_METHOD", "fixed")

