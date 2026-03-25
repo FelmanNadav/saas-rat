@@ -393,7 +393,7 @@ The refresh interval is re-queried on every server cycle, so changes take effect
 - Google Forms is append-only — inbox and outbox grow until manually cleared (use `sheets_c2_cleanup.gs`)
 - Result fields truncated at ~4000 characters (Google Forms field size limit)
 - Background result pollers time out after 5 minutes with no client response
-- Single client per spreadsheet — `client_id` defaults to `NADAV`
+- **Single client per spreadsheet** — multi-client routing is not implemented. The `target` and `client_id` fields exist in the sheet schema but the server always broadcasts to all clients and collects from all clients indiscriminately. Running two clients (e.g. local + Docker) against the same sheet means every command executes on both and you get two results back. This is a known limitation — multi-client routing is planned (see `ideas/pluggable_channels.md`). For now: run one client at a time.
 - The `form_timestamp` column added by Google Forms cannot be removed and is always visible
 
 ---

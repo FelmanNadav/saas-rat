@@ -73,6 +73,7 @@ Firebase config is smaller: base URL + inbox path + outbox path.
 - `switch_channel` payload contains live credentials (Forms URLs, Firebase endpoint). Acceptable by design — the channel is the trust boundary and the payload is encrypted.
 - Multiple active channels (server aggregates across sheets) is a separate and more complex idea — separate from the switch mechanic.
 - The `target` field + multi-client routing is independent of this and should be implemented first.
+- **Current behaviour without multi-client routing:** the server broadcasts every command to all connected clients (all read the same inbox) and collects results from all clients indiscriminately. Running two clients against the same sheet causes every command to execute twice and produces duplicate results. The `client_id` field in outbox rows identifies who responded but the server does not filter by it. The `target` field in inbox rows exists in the schema but is not checked by the client. Until routing is implemented, operators must run one client at a time.
 
 ---
 
