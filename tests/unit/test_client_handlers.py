@@ -230,3 +230,73 @@ class TestDispatch:
         for i, frag in enumerate(result["_fragments"]):
             total = len(result["_fragments"])
             assert frag["status"] == f"frag:{i}:{total}"
+
+
+# ---------------------------------------------------------------------------
+# _flush_queued_fragment
+# ---------------------------------------------------------------------------
+
+class TestFlushQueuedFragment:
+    def _make_frag(self, command_id, index, total):
+        return {"command_id": command_id, "status": f"frag:{index}:{total}", "result": f"chunk{index}"}
+
+    def test_empty_queue_does_nothing(self, monkeypatch):
+        import client, common
+        client._send_queue.clear()
+        calls = []
+        common.set_channel(type("C", (), {"write_result": lambda self, d: calls.append(d) or True,
+                                          "read_inbox": None, "read_outbox": None,
+                                          "write_task": None, "build_outbox_fragments": None,
+                                          "build_inbox_fragments": None})())
+        client._flush_queued_fragment()
+        assert calls == []
+
+    def test_sends_first_fragment_and_removes_it(self, monkeypatch):
+        import client, common
+        frags = [self._make_frag("abc", i, 3) for i in range(3)]
+        client._send_queue.extend(frags)
+        common.set_channel(type("C", (), {"write_result": lambda self, d: True,
+                                          "read_inbox": None, "read_outbox": None,
+                                          "write_task": None, "build_outbox_fragments": None,
+                                          "build_inbox_fragments": None})())
+        client._flush_queued_fragment()
+        assert len(client._send_queue) == 2
+        assert client._send_queue[0]["status"] == "frag:1:3"
+
+    def test_one_fragment_per_call(self, monkeypatch):
+        import client, common
+        frags = [self._make_frag("abc", i, 4) for i in range(4)]
+        client._send_queue.extend(frags)
+        common.set_channel(type("C", (), {"write_result": lambda self, d: True,
+                                          "read_inbox": None, "read_outbox": None,
+                                          "write_task": None, "build_outbox_fragments": None,
+                                          "build_inbox_fragments": None})())
+        for expected_remaining in (3, 2, 1, 0):
+            client._flush_queued_fragment()
+            assert len(client._send_queue) == expected_remaining
+
+    def test_write_failure_leaves_fragment_in_queue(self, monkeypatch):
+        import client, common
+        frags = [self._make_frag("abc", i, 2) for i in range(2)]
+        client._send_queue.extend(frags)
+        common.set_channel(type("C", (), {"write_result": lambda self, d: False,
+                                          "read_inbox": None, "read_outbox": None,
+                                          "write_task": None, "build_outbox_fragments": None,
+                                          "build_inbox_fragments": None})())
+        client._flush_queued_fragment()
+        assert len(client._send_queue) == 2
+        assert client._send_queue[0]["status"] == "frag:0:2"
+
+    def test_retry_succeeds_after_previous_failure(self, monkeypatch):
+        import client, common
+        frags = [self._make_frag("abc", i, 2) for i in range(2)]
+        client._send_queue.extend(frags)
+        results = [False, True]
+        common.set_channel(type("C", (), {"write_result": lambda self, d: results.pop(0),
+                                          "read_inbox": None, "read_outbox": None,
+                                          "write_task": None, "build_outbox_fragments": None,
+                                          "build_inbox_fragments": None})())
+        client._flush_queued_fragment()
+        assert len(client._send_queue) == 2  # failure — unchanged
+        client._flush_queued_fragment()
+        assert len(client._send_queue) == 1  # success — fragment 0 gone

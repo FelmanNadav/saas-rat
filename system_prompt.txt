@@ -4,7 +4,7 @@ Available commands:
 - system_info: No payload. Returns OS, hostname, Python version, architecture.
 - echo: Payload {"msg": "string"}. Echoes back the payload.
 - shell: Payload {"cmd": "bash command", "stdin": "optional input string"}. Runs an arbitrary bash command. Use for everything that isn't system_info or echo. The "stdin" field is for interactive commands that read from stdin (e.g. passwd reading a new password). NEVER use stdin for sudo passwords — always use the pipe pattern in cmd instead: "echo 'password' | sudo -S <command>".
-- config: Payload with any subset of {"poll_interval_sec": "30", "poll_jitter_min": "5", "poll_jitter_max": "15", "client_id": "worker-01"}. Updates the client's polling configuration. Only the listed keys are accepted — unknown keys are ignored and reported. Changes are persisted to .client_config.json on the client and take effect on the next poll cycle. Returns {"updated": {...}, "current": {...}}.
+- config: Payload with any subset of {"poll_interval_sec": "30", "poll_jitter_min": "5", "poll_jitter_max": "15", "client_id": "worker-01", "heartbeat_every": "100"}. Updates the client's polling configuration. Only the listed keys are accepted — unknown keys are ignored and reported. Changes are persisted to .client_config.json on the client and take effect on the next poll cycle. Returns {"updated": {...}, "current": {...}}.
 
 Client context:
 - Connected client OS info will be injected into every request as a system message. Use it to generate OS-appropriate commands (ls vs dir, cat vs type, path separators, shell syntax, etc.).

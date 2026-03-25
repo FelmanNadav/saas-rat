@@ -95,14 +95,22 @@ This is the correct enterprise-grade pattern. Do not refactor `main()` for testa
 
 ---
 
-## Server Poll Interval — resolve with channel abstraction
+## Server Poll Interval — current state and open idea
 
-Currently the server's background poll thread (`_start_poll_thread`) reads its interval from `common.read_config()` (the deprecated config sheet tab) and falls back to a hardcoded 30s. This is a leftover from the old config-tab design.
+**Current state:** `_start_poll_thread` calls `common.get_channel().poll_interval()`. `SheetsChannel.poll_interval()` returns a fixed 5s. The `Channel` base class defaults to 30s for future backends. No config needed, no sync burden.
 
-The server poll interval should match the client's poll interval — there is no point checking for results faster than the client can produce them. Three options were considered:
+The fixed 5s works fine in practice — the server just polls until a result appears, and results arrive whenever the client writes them. Polling faster than necessary is harmless (cheap CSV read).
 
-- **Option A (current recommendation):** `SERVER_POLL_INTERVAL_SEC` in `.env`, set manually by the operator to match the client config. Simple, explicit, no coupling.
-- **Option B:** Server reads `.client_config.json` directly — only works when both run on the same machine.
-- **Option C:** Server auto-updates its poll interval from the `current` field in a config command result — self-synchronising but adds state management for an edge case.
+**The open idea: self-synchronising poll interval**
 
-Option A is the right interim fix. The real solution is the channel abstraction: when both sides share a `Channel` object with a `poll_interval` property, the interval is a channel-level concept and the problem dissolves — the server's event loop reads the same interval the client uses, and a `switch_channel` or `config` command updates both sides coherently.
+Ideally the server's poll interval would automatically track the client's actual cycle time. When the operator sends a `config` command that changes `poll_interval_sec` or `poll_jitter_max`, the server's background poller should adjust immediately without any manual change.
+
+Approaches worth exploring:
+
+- **Option A — Config command side-effect:** when the server sends a `config` command, it updates `common.get_channel().set_poll_interval(new_interval)` locally at the same time. Both sides stay in sync because the server is the one initiating the change. Simple, no new commands needed. Risk: server-side state can drift if the client's config is changed by another server instance.
+
+- **Option B — Heartbeat carries client timing:** client includes `poll_interval_sec` and `poll_jitter_max` in heartbeat results. Server reads these on arrival and calls `set_poll_interval()` on the channel. Fully self-synchronising. Requires heartbeat schema change and server-side heartbeat processing.
+
+- **Option C — `switch_channel` carries timing:** when implementing `switch_channel`, include the new poll interval in the channel config payload. Both sides update their interval as part of the switch. Natural fit — channel config already travels together.
+
+Option B is the cleanest long-term answer and pairs well with heartbeat improvements. Option A is a quick win once `switch_channel` is built. Option C falls out naturally from `switch_channel` design.

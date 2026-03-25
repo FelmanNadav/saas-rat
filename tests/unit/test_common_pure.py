@@ -1,7 +1,8 @@
 import json
 import pytest
 
-from common import _translate_row, _get_column_map, get_encryptor, get_fragmenter
+from channel.sheets import _translate_row, _get_column_map
+from common import get_encryptor, get_fragmenter
 
 
 # ---------------------------------------------------------------------------
@@ -102,3 +103,25 @@ class TestGetFragmenter:
         monkeypatch.setenv("FRAGMENT_METHOD", "unknown")
         from fragmenter.passthrough import PassthroughFragmenter
         assert isinstance(get_fragmenter(), PassthroughFragmenter)
+
+
+# ---------------------------------------------------------------------------
+# SheetsChannel.poll_interval
+# ---------------------------------------------------------------------------
+
+class TestSheetsChannelPollInterval:
+    def test_sheets_poll_interval_is_five(self):
+        from channel.sheets import SheetsChannel
+        assert SheetsChannel().poll_interval() == 5.0
+
+    def test_base_channel_default_is_thirty(self):
+        from channel.base import Channel
+        # Concrete stub to access the base default
+        class StubChannel(Channel):
+            def read_inbox(self): pass
+            def read_outbox(self): pass
+            def write_result(self, d): pass
+            def write_task(self, d): pass
+            def build_outbox_fragments(self, d, c): pass
+            def build_inbox_fragments(self, d, c): pass
+        assert StubChannel().poll_interval() == 30.0

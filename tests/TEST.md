@@ -7,7 +7,7 @@ source venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-90 tests, no external dependencies, no network calls.
+92 tests, no external dependencies, no network calls.
 
 ### Coverage
 
@@ -106,14 +106,14 @@ python server.py collect
 
 **Expected:**
 - Terminal A shows `[client] Config updated: {'poll_interval_sec': '10', 'client_id': 'agent-99'}`
-- `.client_config.json` exists on client machine with new values
+- No files written to disk — config is in-memory only
 - Client polls at ~10s intervals from next cycle onward
 - Subsequent heartbeats use `client_id: agent-99`
 
-**Restart persistence:**
+**Restart behavior:**
 - Kill the client (`Ctrl+C`), restart it
-- Terminal A shows `[client] Loaded config from .client_config.json`
-- Poll interval and client_id are retained without re-sending the config command
+- Terminal A shows `[info] client starting — config resets on restart, re-send config command if needed`
+- Config reverts to defaults — re-send the config command to restore custom values
 
 ---
 
@@ -198,9 +198,9 @@ python server.py send --command shell --payload '{"cmd": "find / -maxdepth 2 2>/
 - Restart the client
 
 **Expected:**
-- Terminal A shows `[client] Resumed send queue: N fragment(s) pending`
-- Remaining fragments delivered over subsequent cycles
-- `python server.py collect` returns full output
+- Send queue is lost on restart (in-memory only) — remaining fragments are dropped
+- `python server.py collect` returns only the first fragment, not the full output
+- Terminal A shows no queue resume message
 
 ---
 

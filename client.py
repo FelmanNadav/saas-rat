@@ -187,6 +187,25 @@ def send_heartbeat():
 
 
 # ---------------------------------------------------------------------------
+# Send queue
+# ---------------------------------------------------------------------------
+
+def _flush_queued_fragment():
+    """Send the next queued fragment, if any. One fragment per call."""
+    if not _send_queue:
+        return
+    frag = _send_queue[0]
+    ok = common.write_form(frag)
+    if ok:
+        _send_queue.pop(0)
+        remaining = len(_send_queue)
+        print(f"[client] Fragment sent for {frag['command_id']} "
+              f"({frag['status']}) — {remaining} remaining in queue")
+    else:
+        print(f"[warn] Fragment write failed for {frag['command_id']}, will retry next cycle")
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
@@ -226,16 +245,7 @@ def main():
         ]
 
         # Flush one queued fragment before processing new commands
-        if _send_queue:
-            frag = _send_queue[0]
-            ok = common.write_form(frag)
-            if ok:
-                _send_queue.pop(0)
-                remaining = len(_send_queue)
-                print(f"[client] Fragment sent for {frag['command_id']} "
-                      f"({frag['status']}) — {remaining} remaining in queue")
-            else:
-                print(f"[warn] Fragment write failed for {frag['command_id']}, will retry next cycle")
+        _flush_queued_fragment()
 
         if pending:
             print(f"[info] {len(pending)} pending command(s)")

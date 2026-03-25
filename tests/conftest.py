@@ -33,9 +33,11 @@ DUMMY_ENV = {
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    """Set required env vars for every test."""
+    """Set required env vars and reset active channel for every test."""
     for k, v in DUMMY_ENV.items():
         monkeypatch.setenv(k, v)
+    import common
+    common._active_channel = None
 
 
 def make_csv(rows):

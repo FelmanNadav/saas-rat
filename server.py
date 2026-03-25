@@ -101,7 +101,49 @@ def send_command(command, payload=None, target="outbox"):
         for frag in frags:
             common.write_inbox_form(frag)
     print(f"[server] Sent {command_id}: {command}")
+    _print_delivery_estimate()
     return command_id
+
+
+def _print_delivery_estimate():
+    """Print expected response timing based on client config and fragment settings."""
+    # Read client config if available locally, otherwise use defaults
+    client_cfg = {}
+    if os.path.exists(".client_config.json"):
+        try:
+            with open(".client_config.json") as f:
+                client_cfg = json.load(f)
+        except Exception:
+            pass
+
+    try:
+        interval = float(client_cfg.get("poll_interval_sec", 30))
+        jitter_min = float(client_cfg.get("poll_jitter_min", 5))
+        jitter_max = float(client_cfg.get("poll_jitter_max", 15))
+    except ValueError:
+        interval, jitter_min, jitter_max = 30, 5, 15
+
+    cycle_min = interval + jitter_min
+    cycle_max = interval + jitter_max
+
+    method = os.environ.get("FRAGMENT_METHOD", "passthrough").strip().lower()
+
+    if method == "fixed":
+        try:
+            chunk_size = int(os.environ.get("FRAGMENT_CHUNK_SIZE", 2000))
+        except ValueError:
+            chunk_size = 2000
+        print(
+            f"{C_DIM}[timing] Fragmentation on (chunk: {chunk_size}b). "
+            f"First fragment arrives in {cycle_min:.0f}–{cycle_max:.0f}s. "
+            f"Each additional fragment adds {cycle_min:.0f}–{cycle_max:.0f}s. "
+            f"Large results span multiple cycles.{C_RESET}"
+        )
+    else:
+        print(
+            f"{C_DIM}[timing] Response expected in {cycle_min:.0f}–{cycle_max:.0f}s "
+            f"(1 poll cycle).{C_RESET}"
+        )
 
 
 def collect(filter_id=None):
@@ -442,13 +484,7 @@ def ai_chat():
 
     def _start_poll_thread(cmd_id, command_desc):
         def _poll():
-            try:
-                cfg = common.read_config()
-                interval = int(cfg.get("poll_interval_sec", 30))
-                jitter_max = float(cfg.get("poll_jitter_max", 0))
-            except Exception:
-                interval, jitter_max = 30, 0
-            poll_interval = interval + jitter_max
+            poll_interval = common.get_channel().poll_interval()
             deadline = time.time() + 300
 
             while time.time() < deadline:

