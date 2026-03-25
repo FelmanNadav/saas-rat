@@ -24,7 +24,7 @@ Built for security research and authorized penetration testing in controlled lab
             ┌──────────▼──┐      ┌────▼──────────┐
             │   server.py │      │   client.py   │
             │             │      │               │
-            │  send       │      │  poll loop    │
+            │  send       │      │  cycle loop   │
             │  collect    │      │  execute      │
             │  ai (GPT4o) │      │  heartbeat    │
             └─────────────┘      └───────────────┘
@@ -37,7 +37,7 @@ Built for security research and authorized penetration testing in controlled lab
 - Client writes results → outbox tab via Google Forms POST
 - Server reads outbox → CSV export
 
-All traffic goes to `docs.google.com`. Google Forms is used for writes because it is the only unauthenticated append endpoint for Google Sheets — no API keys or OAuth required on the client.
+All traffic goes to `docs.google.com`. Google Forms is the only unauthenticated append endpoint for Google Sheets — no API keys or OAuth required on the client.
 
 ---
 
@@ -49,8 +49,9 @@ sheets-c2/
 ├── server.py            # Operator interface — send, collect, AI console
 ├── common.py            # Shared utilities — encryption, fragmentation, channel registry
 ├── system_prompt.txt    # GPT-4o system prompt — edit to change AI behavior
+├── setup_wizard.py      # Interactive setup wizard — writes .env step by step
 ├── channel/
-│   ├── base.py          # Abstract Channel interface
+│   ├── base.py          # Abstract Channel interface + refresh interval management
 │   └── sheets.py        # Google Sheets/Forms implementation (SheetsChannel)
 ├── crypto/
 │   ├── base.py          # Abstract Encryptor class
@@ -60,6 +61,12 @@ sheets-c2/
 │   ├── base.py          # Abstract Fragmenter class
 │   ├── passthrough.py   # No fragmentation (default)
 │   └── fixed.py         # Fixed-size chunks (FRAGMENT_CHUNK_SIZE bytes)
+├── wizard/
+│   ├── core.py          # Shared prompt utilities (ask, ask_yn, ask_choice, ...)
+│   ├── channel/         # Channel setup wizards (SheetsWizard — auto + manual)
+│   ├── crypto/          # Encryption setup wizards (PlaintextWizard, FernetWizard)
+│   └── fragmenter/      # Fragmentation setup wizards (PassthroughWizard, FixedWizard)
+├── ideas/               # Design docs for planned features
 ├── .env                 # Runtime config (not committed)
 ├── .env.example         # Template with all required and optional keys
 └── requirements.txt     # Python dependencies
@@ -88,9 +95,37 @@ pip install -r requirements.txt
 
 ---
 
-## Google Sheets Setup
+## Setup
 
-Create one spreadsheet with **two tabs**: `inbox` and `outbox`. Share it as **"Anyone with the link can view"** — required for unauthenticated CSV export. No config tab is needed — client config is managed via the `config` command.
+The recommended path is the interactive setup wizard. It creates the Google Sheet and Forms automatically via an Apps Script, then writes your `.env`.
+
+```bash
+python setup_wizard.py
+```
+
+The wizard walks through:
+1. **Encryption** — plaintext (debug) or Fernet (recommended)
+2. **Column obfuscation** — optional random column names to obscure sheet structure
+3. **Channel setup** — auto (Apps Script) or manual (step-by-step browser)
+4. **Fragmentation** — passthrough or fixed-size chunks
+5. **Extras** — OpenAI API key, custom client ID
+6. **Summary** — review and write `.env`
+
+### Auto setup (Apps Script)
+
+The wizard writes `sheets_c2_setup.gs`. Paste it into [script.google.com](https://script.google.com), run `setup()`, copy the JSON from the execution log, and paste it back. The wizard writes your `.env` automatically.
+
+The wizard also writes `sheets_c2_cleanup.gs` — a script that deletes all data rows (keeps headers) from inbox and outbox. Run `cleanupAll()` manually or `installTrigger()` to automate it on a schedule.
+
+### Manual setup
+
+If you prefer to create the sheet and forms by hand, choose manual mode in the wizard or refer to the sections below.
+
+---
+
+## Manual Google Sheets Setup
+
+Create one spreadsheet with **two tabs**: `inbox` and `outbox`. Share it as **"Anyone with the link can view"** — required for unauthenticated CSV export.
 
 ### Tab: `inbox`
 
@@ -98,67 +133,47 @@ Default column headers (use as-is, or rename to random names — see [Column Obf
 
 `command_id`, `command`, `payload`, `target`, `status`, `created_at`
 
-Leave empty — server writes here via Forms.
-
 ### Tab: `outbox`
 
-Default column headers (use as-is, or rename to random names):
+Default column headers:
 
 `command_id`, `client_id`, `status`, `result`, `timestamp`
 
-Leave empty — client writes here via Forms.
-
-> **Important:** When linking a Google Form to a sheet, Forms auto-creates a new tab and adds a `Timestamp` column. Rename that column to `form_timestamp` to avoid collision with the `timestamp` field. Re-check all GIDs after linking — the linked tab gets a new GID, not the one from the original empty tab.
+> **Note:** When linking a Google Form to a sheet, Forms auto-creates a new tab. Re-check `?gid=` values after linking — the linked tab has a different GID than your original empty tab. The auto-added `Timestamp` column should be renamed to `form_timestamp` to avoid collision.
 
 ---
 
-## Google Forms Setup
+## Manual Google Forms Setup
 
-Two forms are required — one per tab (inbox and outbox; no config form needed).
+Two forms required — one per tab.
 
 ### Outbox Form (client → server, links to `outbox` tab)
 
-| Field label | Links to column |
-|-------------|-----------------|
-| `command_id` | `command_id` |
-| `client_id` | `client_id` |
-| `status` | `status` |
-| `result` | `result` |
-| `timestamp` | `timestamp` |
-
-If using column obfuscation, use the random names from `OUTBOX_COLUMN_MAP` instead of the logical names above.
+Fields: `command_id`, `client_id`, `status`, `result`, `timestamp`
 
 ### Inbox Form (server → client, links to `inbox` tab)
 
-| Field label | Links to column |
-|-------------|-----------------|
-| `command_id` | `command_id` |
-| `command` | `command` |
-| `payload` | `payload` |
-| `target` | `target` |
-| `status` | `status` |
-| `created_at` | `created_at` |
+Fields: `command_id`, `command`, `payload`, `target`, `status`, `created_at`
 
-If using column obfuscation, use the random names from `INBOX_COLUMN_MAP` instead.
-
-**Getting entry IDs:** Open the form preview → F12 → search `entry.` in the page source. Each field has a unique `entry.XXXXXXXXX` ID needed for `FORMS_FIELD_MAP`. Entry IDs never change even if you rename the field labels.
+**Getting entry IDs:** Open the form preview → right-click → View Page Source → search `entry.`. Each field has a unique `entry.XXXXXXXXX` ID. These are required for `FORMS_FIELD_MAP` and never change even if you rename field labels.
 
 ---
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in all values.
+Copy `.env.example` to `.env` and fill in all values. The setup wizard does this for you.
 
 ```env
 # Google Sheets
 SPREADSHEET_ID=          # From sheet URL: /d/<ID>/edit
 INBOX_GID=               # ?gid=X when inbox tab is selected
 OUTBOX_GID=              # ?gid=X when outbox tab is selected
-# CONFIG_GID not needed — client config is sent via the config command
 
-# Google Forms
+# Google Forms — Outbox (client writes results here)
 FORMS_URL=               # Outbox form URL ending in /formResponse
 FORMS_FIELD_MAP=         # JSON: {"command_id":"entry.X","client_id":"entry.X",...}
+
+# Google Forms — Inbox (server writes commands here)
 INBOX_FORMS_URL=         # Inbox form URL ending in /formResponse
 INBOX_FORMS_FIELD_MAP=   # JSON: {"command_id":"entry.X","command":"entry.X",...}
 
@@ -170,24 +185,26 @@ ENCRYPTION_KEY=          # Fernet key — generate with: python crypto/fernet.py
 INBOX_COLUMN_MAP=        # JSON: {"command_id":"f3a7k","command":"x9m2p",...}
 OUTBOX_COLUMN_MAP=       # JSON: {"command_id":"p7c4s","client_id":"m1z8e",...}
 
+# Fragmentation
+FRAGMENT_METHOD=         # "passthrough" (default) or "fixed"
+FRAGMENT_CHUNK_SIZE=     # bytes per chunk when using "fixed" (default 2000)
+
 # OpenAI
 OPENAI_API_KEY=          # Required for ai mode only
+
+# Client
+CLIENT_ID=               # Client identifier (default: NADAV)
 ```
-
-### Configuration checklist
-
-- [ ] `SPREADSHEET_ID` — between `/d/` and `/edit` in the sheet URL
-- [ ] Sheet shared as "Anyone with the link can view"
-- [ ] `INBOX_GID` and `OUTBOX_GID` match `?gid=` params for their tabs; re-check after linking Forms
-- [ ] Form URLs end in `/formResponse` (not `/viewform`)
-- [ ] `FORMS_FIELD_MAP` keys: `command_id`, `client_id`, `status`, `result`, `timestamp`
-- [ ] `INBOX_FORMS_FIELD_MAP` keys: `command_id`, `command`, `payload`, `target`, `status`, `created_at`
-- [ ] If using `fernet`: `ENCRYPTION_KEY` is set and identical on both client and server machines
-- [ ] If using column maps: sheet column headers and form field labels renamed to match; `INBOX_COLUMN_MAP` and `OUTBOX_COLUMN_MAP` set identically on both machines
 
 ---
 
 ## Usage
+
+### CLI help
+
+```bash
+python server.py --help
+```
 
 ### Start the client
 
@@ -198,25 +215,25 @@ source venv/bin/activate
 python client.py
 ```
 
-The client sends a heartbeat on startup and every 100 poll cycles (configurable via `heartbeat_every`), then loops: read inbox → execute pending tasks → write results → sleep. All config is in-memory — it resets to defaults on restart. Re-send a `config` command after restarting to restore custom polling parameters.
+The client sends a heartbeat on startup and every 100 cycles (configurable via `heartbeat_every`). Each heartbeat includes system info and the client's current cycle timing — the server uses this to automatically sync its refresh interval. All config is in-memory and resets on restart.
 
-### Dispatch a command (server)
+### Dispatch a command
 
 ```bash
 python server.py send --command system_info
 python server.py send --command echo --payload '{"msg": "hello"}'
 python server.py send --command shell --payload '{"cmd": "whoami"}'
-python server.py send --command config --payload '{"poll_interval_sec": "60", "client_id": "agent-01"}'
+python server.py send --command config --payload '{"cycle_interval_sec": "60", "client_id": "agent-01"}'
 ```
 
-### Read results (server)
+### Read results
 
 ```bash
 python server.py collect
 python server.py collect --id <command_id>
 ```
 
-### AI operator console (server)
+### AI operator console
 
 ```bash
 python server.py ai
@@ -228,136 +245,56 @@ Type commands in plain English. GPT-4o translates them into structured actions, 
 
 ## AI Console Reference
 
-### Session modes
+### In-session help
+
+```
+> help
+```
+
+Prints all local REPL commands. Never sent to the AI.
+
+### Send mode
 
 | Command | Effect |
 |---------|--------|
 | `mode auto` | Send commands immediately without confirmation |
-| `mode confirm` | Preview and confirm before each send |
-| `output raw` / `mode raw` | Display stdout directly |
-| `output interpreted` / `mode interpreted` | GPT-4o summarizes results (default) |
+| `mode confirm` | Preview and confirm before each send (default) |
+| `mode` | Show current mode |
 
-### Shortcuts (caught before GPT-4o)
+### Output mode
+
+| Command | Effect |
+|---------|--------|
+| `output raw` | Display raw stdout directly |
+| `output interpreted` | GPT-4o summarizes results (default) |
+| `output` | Show current mode |
+
+### Server refresh interval
+
+The server's background poller re-reads the outbox on a configurable interval. By default it starts at 5s and auto-syncs to the client's cycle timing once the first heartbeat arrives.
+
+| Command | Effect |
+|---------|--------|
+| `refresh <sec>` | Override refresh interval manually — pauses heartbeat sync |
+| `refresh auto` | Clear override — sync back to client heartbeat timing |
+| `refresh` | Show current interval and whether it is manual or heartbeat-synced |
+
+### Shortcuts
 
 | Input | Effect |
 |-------|--------|
-| `raw` / `exact` / `full output` | Print raw stdout of last result |
-| `?` / `show` / `results` / `digest` | Show any arrived-but-unseen results |
 | `do it` / `yes` / `go` | Execute the last AI-suggested command |
+| `raw` / `exact` / `full output` | Print raw stdout of the most recent result |
+| `?` / `show` / `results` | Show any arrived-but-unseen results |
 | `exit` / `quit` | Exit the console |
-
-### Command chaining
-
-In auto mode, when a result arrives from a multi-step task the AI previously planned, the next step is dispatched automatically (`[Chaining]`). In confirm mode, or when a step has a destructive warning, it falls back to `[Suggestion]` requiring manual confirmation.
 
 ### Destructive commands
 
-Commands matching patterns like `rm -rf`, `kill -9`, `shutdown`, `dd`, `mkfs` are flagged with a warning and always require explicit confirmation, regardless of mode.
+Commands matching patterns like `rm -rf`, `kill -9`, `shutdown`, `dd`, `mkfs` are flagged with a warning and always require explicit confirmation regardless of mode.
 
 ### Customizing AI behavior
 
-Edit `system_prompt.txt` — loaded fresh at each `server.py ai` session. No code changes needed.
-
----
-
-## Encryption
-
-Encryption is applied transparently at the channel boundary in `channel/sheets.py`. All field values in inbox and outbox are encrypted before writing and decrypted after reading. No changes are needed to any other code — handlers, the AI layer, and server dispatch all work with plaintext.
-
-Encryption config (`ENCRYPTION_METHOD`, `ENCRYPTION_KEY`, column maps) is always loaded from the local `.env` file — never from the sheet — so there is no chicken-and-egg problem.
-
-### Encryption modes
-
-| `ENCRYPTION_METHOD` | Description |
-|---------------------|-------------|
-| `plaintext` (default) | No encryption — cleartext values in sheet |
-| `fernet` | AES-128-CBC + HMAC-SHA256, key from `ENCRYPTION_KEY` |
-
-### Enabling Fernet
-
-```bash
-# 1. Generate a key (run once)
-python crypto/fernet.py
-
-# 2. Add to .env on both client and server
-ENCRYPTION_METHOD=fernet
-ENCRYPTION_KEY=<generated key>
-```
-
-Both machines must use the same method and key. Rows that fail decryption are silently passed through as-is, so existing plaintext rows remain readable when switching methods.
-
-### How command_id correlation works under encryption
-
-Fernet is non-deterministic — encrypting the same value twice produces different ciphertext. The `command_id` field appears in both inbox (written by server) and outbox (written by client), so the ciphertexts will differ. This is not a problem: all comparisons happen **after** decryption. The server stores the plaintext UUID when dispatching and compares against the decrypted value when reading outbox. The correlation is always on plaintext.
-
----
-
-## Fragmentation
-
-Large results (and large payloads) are split into fixed-size chunks and sent one chunk per poll cycle. This keeps individual HTTP requests small and avoids Google Forms field size limits (~4000 chars).
-
-| `FRAGMENT_METHOD` | Description |
-|-------------------|-------------|
-| `passthrough` (default) | No fragmentation — result sent in a single write |
-| `fixed` | Split into chunks of `FRAGMENT_CHUNK_SIZE` bytes (default 2000) |
-
-Fragments use `status="frag:N:T"` in the sheet. The receiver reassembles them in-memory on every full-tab read — no persistence needed since the CSV export always returns all rows.
-
-**Send side:** the first fragment is written immediately; remaining fragments are queued in memory and sent one per poll cycle. The queue is lost on client restart.
-
-**Enabling fragmentation:**
-
-```env
-FRAGMENT_METHOD=fixed
-FRAGMENT_CHUNK_SIZE=2000   # lower = smaller per-cycle footprint, more cycles to complete
-```
-
-After sending a command, the server prints a timing estimate showing when the first fragment will arrive and how much additional time each subsequent fragment adds.
-
----
-
-## Column Name Obfuscation
-
-By default, sheet column headers use logical names (`command_id`, `status`, `payload`, etc.) that are visible to anyone with the sheet link, even if the values are encrypted.
-
-Column name obfuscation replaces those headers with short random strings, making the sheet structure unreadable to an observer.
-
-### How it works
-
-- `INBOX_COLUMN_MAP` and `OUTBOX_COLUMN_MAP` map logical field names → random column names
-- When these are set, `common.py` translates random keys → logical names after reading the CSV
-- The write path is unaffected — `FORMS_FIELD_MAP` maps logical names → entry IDs, which never change
-- Random names only affect sheet column headers and form field labels
-
-### Enabling column obfuscation
-
-**1. Choose random names** — generate short strings or use the examples in `.env.example`:
-
-```
-INBOX_COLUMN_MAP={"command_id":"f3a7k","command":"x9m2p","payload":"b4r8w","target":"d1n5q","status":"h6v3j","created_at":"k2y9t"}
-OUTBOX_COLUMN_MAP={"command_id":"p7c4s","client_id":"m1z8e","status":"w5g2u","result":"a9b3l","timestamp":"r6q7n"}
-```
-
-**2. Rename form field labels** — in each Google Form, rename every field label to its random name from the map. The linked sheet columns automatically update to match.
-
-**3. Add maps to `.env`** on both client and server.
-
-> **Note:** Entry IDs (`entry.XXXXXXXXX`) in `FORMS_FIELD_MAP` do not change when you rename field labels — only the column header in the sheet changes. Your `FORMS_FIELD_MAP` stays exactly the same.
-
-> **Note:** Google Forms auto-adds a `Timestamp` column (renamed to `form_timestamp` during setup). This column is not in any map and will remain visible as-is. It reveals only the submission time, not any payload content.
-
-### Obfuscation modes
-
-Both column obfuscation and value encryption are independent. Use whichever combination fits your situation:
-
-| `ENCRYPTION_METHOD` | Column maps set | Sheet appearance |
-|---------------------|-----------------|------------------|
-| `plaintext` | No | Readable column names, cleartext values — **debug / showcase mode** |
-| `plaintext` | Yes | Random column names, cleartext values — structure hidden, values readable |
-| `fernet` | No | Readable column names, encrypted values — values hidden, structure visible |
-| `fernet` | Yes | Random column names, encrypted values — **full production mode** |
-
-For debugging or demoing the sheet to others, set `ENCRYPTION_METHOD=plaintext` and remove or comment out the column map vars. No sheet changes needed — just restart client and server.
+Edit `system_prompt.txt` — loaded fresh at each `server.py ai` session.
 
 ---
 
@@ -365,28 +302,116 @@ For debugging or demoing the sheet to others, set `ENCRYPTION_METHOD=plaintext` 
 
 | Command | Payload | Description |
 |---------|---------|-------------|
-| `system_info` | none | Returns OS, hostname, architecture, username, Python version |
+| `system_info` | none | OS, hostname, architecture, username, Python version |
 | `echo` | `{"msg": "..."}` | Returns payload as-is |
-| `shell` | `{"cmd": "..."}` | Runs a shell command; optional `"stdin"` field for interactive input |
-| `config` | `{"poll_interval_sec": "30", ...}` | Updates client polling config in-memory; only known keys accepted; resets on restart |
+| `shell` | `{"cmd": "..."}` | Runs a shell command; optional `"stdin"` for interactive input |
+| `config` | see below | Updates client cycle config in-memory; resets on restart |
+
+### Config keys
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `cycle_interval_sec` | `30` | Base sleep between client cycles (seconds) |
+| `cycle_jitter_min` | `5` | Minimum random jitter added per cycle (seconds) |
+| `cycle_jitter_max` | `15` | Maximum random jitter added per cycle (seconds) |
+| `heartbeat_every` | `100` | Send a heartbeat every N cycles |
+| `client_id` | `NADAV` | Client identifier reported in results |
+
+Only listed keys are accepted — unknown keys are silently ignored. All changes are in-memory; re-send config after client restart.
 
 **Shell handler notes:**
-- 30 second timeout; hanging commands return a timeout error
+- 30 second timeout — hanging commands return a timeout error
 - `stdin` defaults to `/dev/null` to prevent interactive prompts from blocking
 - If `cmd` contains `| sudo -S`, the `stdin` field is ignored to avoid conflict
 
 ---
 
+## Encryption
+
+Applied transparently at the channel boundary. All field values are encrypted before writing and decrypted after reading. Handlers, AI layer, and server dispatch always work with plaintext.
+
+| `ENCRYPTION_METHOD` | Description |
+|---------------------|-------------|
+| `plaintext` (default) | No encryption — cleartext values in sheet |
+| `fernet` | AES-128-CBC + HMAC-SHA256, key from `ENCRYPTION_KEY` |
+
+```bash
+# Generate a Fernet key
+python crypto/fernet.py
+```
+
+Both machines must use the same method and key. Rows that fail decryption pass through as-is — existing plaintext rows remain readable when switching methods.
+
+**Note on command_id correlation:** Fernet is non-deterministic — the same value encrypted twice produces different ciphertext. All `command_id` comparisons happen after decryption, so this is never a problem.
+
+---
+
+## Fragmentation
+
+Large results are split into fixed-size chunks, one chunk sent per client cycle. Keeps individual HTTP requests below Google Forms' ~4000 character field limit.
+
+| `FRAGMENT_METHOD` | Description |
+|-------------------|-------------|
+| `passthrough` (default) | No fragmentation — result sent in a single write |
+| `fixed` | Split into `FRAGMENT_CHUNK_SIZE` byte chunks (default 2000) |
+
+Fragments use `status="frag:N:T"`. Reassembly is in-memory on every full-tab read — no persistence needed since CSV export returns all rows. The send queue is lost on client restart.
+
+---
+
+## Column Name Obfuscation
+
+Replaces logical column headers (`command_id`, `status`, etc.) with short random strings. Values can still be encrypted independently — the two features compose.
+
+| `ENCRYPTION_METHOD` | Column maps set | Sheet appearance |
+|---------------------|-----------------|------------------|
+| `plaintext` | No | Readable names, cleartext values — debug mode |
+| `plaintext` | Yes | Random names, cleartext values |
+| `fernet` | No | Readable names, encrypted values |
+| `fernet` | Yes | Random names, encrypted values — full production mode |
+
+**Setup:** The wizard generates the maps and displays the names to use when creating the sheet and forms. If setting up manually, choose random short strings, rename all form field labels and sheet column headers to match, then add the maps to `.env` on both machines.
+
+> Entry IDs (`entry.XXXXXXXXX`) in `FORMS_FIELD_MAP` do not change when you rename field labels.
+
+---
+
+## Server Refresh Interval
+
+The server's background thread reads the outbox on a repeating interval — the **refresh interval**. This is distinct from the **client cycle interval** (how often the client wakes up).
+
+- Default: 5s (fast enough for prompt result visibility; cheap CSV read)
+- Auto-sync: the first heartbeat from the client carries `cycle_interval_sec`; the server sets its refresh interval to match automatically
+- Manual override: `refresh <sec>` in the AI console; `refresh auto` to revert
+
+The refresh interval is re-queried on every server cycle, so changes take effect immediately.
+
+---
+
 ## Limitations
 
-- Google Forms is append-only — inbox and outbox grow unbounded until manually cleared in the sheet
-- Result fields are truncated at ~4000 characters (Google Forms field size limit)
-- Background result pollers give up after 5 minutes with no response from the client
-- Single client per spreadsheet — `client_id` defaults to `NADAV` (set `CLIENT_ID` env var or use the `config` command to change it)
-- The `form_timestamp` column added by Google Forms cannot be renamed or removed and will always appear in the sheet
+- Google Forms is append-only — inbox and outbox grow until manually cleared (use `sheets_c2_cleanup.gs`)
+- Result fields truncated at ~4000 characters (Google Forms field size limit)
+- Background result pollers time out after 5 minutes with no client response
+- Single client per spreadsheet — `client_id` defaults to `NADAV`
+- The `form_timestamp` column added by Google Forms cannot be removed and is always visible
 
 ---
 
 ## Roadmap
 
-- Setup script — interactive wizard to create the sheet, forms, generate column maps, and write `.env` automatically
+See `ideas/` for detailed design docs.
+
+| Feature | Status |
+|---------|--------|
+| Pluggable channel abstraction | Done |
+| Fernet encryption | Done |
+| Fixed-size fragmentation | Done |
+| Column obfuscation | Done |
+| Setup wizard (auto + manual) | Done |
+| Self-synchronising server refresh interval | Done |
+| `switch_channel` command (mid-op channel pivot) | Planned |
+| Firebase backend | Planned |
+| Multi-client routing via `target` field | Planned |
+| Client packaging (PyInstaller dropper) | Planned |
+| `load_module` command (exec-over-the-wire) | Planned |
