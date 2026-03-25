@@ -81,22 +81,63 @@ single injection point — swapping it out is a one-function change.
 
 ---
 
+## Cross-Platform Packaging
+
+PyInstaller cannot cross-compile. A binary built on Linux only runs on Linux.
+To target multiple OSes, run `packager.py` natively on each:
+
+| Target OS | Build machine | Output |
+|---|---|---|
+| Linux (x86_64) | Any Linux box | ELF binary |
+| Windows | Windows machine | .exe |
+| macOS | macOS machine | Mach-O binary |
+
+The client code itself is fully cross-platform — no OS-specific code. `packager.py`
+works identically on all three. Maintain one build machine per target OS.
+
+---
+
+## Obfuscation Profiles
+
+Layers can be stacked. Test each level against the defense product independently
+to find the detection boundary.
+
+| Profile | Build | Reversibility | Status |
+|---|---|---|---|
+| **basic** | PyInstaller `--onefile` | Extractable with pyinstxtractor + decompile-bytecode | **Implement first** |
+| **upx** | PyInstaller + UPX compression | Extra unpack step before Python layer is accessible | Planned |
+| **pyarmor** | PyArmor source encryption → PyInstaller | pyinstxtractor yields encrypted bytecode, not readable source | Planned |
+| **nuitka** | Nuitka → native ELF/.exe | No Python bytecode — C-level binary, hardest to reverse | Planned |
+
+**Recommended test sequence:** build basic → run against defense product → if caught,
+stop. If not caught, add upx → retest. Continue until detection fires or all profiles
+exhausted. The boundary tells you exactly how strong the obfuscation needs to be.
+
+---
+
 ## Packaging Options
 
 **PyInstaller**
 Bundles Python + all imports into a single binary. No Python required on target.
-- Fast to build (~20 min including hidden import troubleshooting)
+- Fast to build
 - `get_encryptor()` / `get_fragmenter()` do runtime imports — must declare as
   `--hidden-import fragmenter.fixed`, `--hidden-import crypto.fernet` etc.
 - Everything must be known at build time (see Dynamic Loading problem below)
+- Does not cross-compile — build on target OS
+
+**PyArmor**
+Encrypts Python source before PyInstaller bundles it. Bytecode inside the binary
+is encrypted — pyinstxtractor yields gibberish instead of readable code.
+Works as a pre-processing step on top of PyInstaller.
+
+**UPX**
+Compresses the PyInstaller binary. PyInstaller has `--upx-dir` built in.
+Adds a binary unpacking step before the Python layer is accessible.
 
 **Nuitka**
-Compiles Python to C, produces a native binary. Harder to reverse than PyInstaller.
-Slower build. Better for long-term operational security.
-
-**py-minifier + single file**
-Flatten all imports into one `.py` file, strip whitespace, rename symbols.
-Still requires Python on target. Good for constrained environments.
+Compiles Python to C, produces a native binary. No Python bytecode to extract.
+Hardest to reverse. Slower build. Better for long-term operational security.
+Does not cross-compile — build on target OS.
 
 ---
 
@@ -143,9 +184,15 @@ its own handler, signature verification, and rollback on failure.
 
 ---
 
-## Implementation Order (when ready)
+## Implementation Order
 
-1. Swap `load_env()` for `os.environ` reads in client (Option C config)
-2. Declare hidden imports for PyInstaller (`fragmenter.*`, `crypto.*`, all channel backends)
-3. Build binary with PyInstaller, test with shell dropper
-4. Design `load_module` command (Option B) as a separate workstream
+1. `packager.py` — interactive script, selects modules, runs PyInstaller (basic profile)
+   - Asks which crypto to include (plaintext / fernet / both)
+   - Asks which fragmenter to include (passthrough / fixed / both)
+   - Declares all required `--hidden-import` flags
+   - Outputs single binary to `dist/client`
+2. Test basic profile against defense product
+3. Add UPX profile to `packager.py` if basic is caught
+4. Add PyArmor profile if UPX is caught
+5. Nuitka as final escalation
+6. Design `load_module` command as a separate workstream (deferred)
