@@ -64,6 +64,7 @@ _ENV_SECTIONS = [
     ("Google Forms — Inbox",   ["INBOX_FORMS_URL", "INBOX_FORMS_FIELD_MAP"]),
     ("Encryption",             ["ENCRYPTION_METHOD", "ENCRYPTION_KEY"]),
     ("Column obfuscation",     ["INBOX_COLUMN_MAP", "OUTBOX_COLUMN_MAP"]),
+    ("Firebase field obfuscation", ["FIREBASE_INBOX_COLUMN_MAP", "FIREBASE_OUTBOX_COLUMN_MAP"]),
     ("Fragmentation",          ["FRAGMENT_METHOD", "FRAGMENT_CHUNK_SIZE"]),
     ("Sheets cleanup",         ["GOOGLE_SERVICE_ACCOUNT_JSON"]),
     ("OpenAI",                 ["OPENAI_API_KEY"]),

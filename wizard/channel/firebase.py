@@ -1,9 +1,25 @@
 import os
+import random
+import string
 
 import requests
 
 from wizard.channel.base import WizardChannel
 from wizard import core
+
+INBOX_FIELDS  = ["command_id", "command", "payload", "target", "status", "created_at"]
+OUTBOX_FIELDS = ["command_id", "client_id", "status", "result", "timestamp"]
+
+
+def _random_name(length=5):
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
+
+def _generate_maps():
+    return {
+        "inbox":  {f: _random_name() for f in INBOX_FIELDS},
+        "outbox": {f: _random_name() for f in OUTBOX_FIELDS},
+    }
 
 
 def _validate_firebase_url(v):
@@ -48,8 +64,8 @@ class FirebaseWizard(WizardChannel):
         core.info("simple REST API. No SDK or API key required on the client —")
         core.info("all reads and writes are plain HTTPS requests.")
         core.info()
-        core.info("Note: column name obfuscation does not apply to Firebase.")
-        core.info("Fernet encryption (if enabled) handles operational security.")
+        core.info("Field name obfuscation replaces logical JSON keys (command_id,")
+        core.info("status, etc.) with random strings — recommended alongside Fernet.")
         core.info()
         core.info("Create your database:")
         core.info("  1. Go to https://console.firebase.google.com")
@@ -104,9 +120,46 @@ class FirebaseWizard(WizardChannel):
 
         core.success("Firebase channel configured")
 
-        return {
+        # ── Field name obfuscation ─────────────────────────────────────────────
+        env = {
             "CHANNEL":              "firebase",
             "FIREBASE_URL":         firebase_url,
             "FIREBASE_INBOX_PATH":  inbox_path,
             "FIREBASE_OUTBOX_PATH": outbox_path,
         }
+
+        import json
+        inbox_map  = obfuscation.get("inbox",  {}) if obfuscation else {}
+        outbox_map = obfuscation.get("outbox", {}) if obfuscation else {}
+
+        if inbox_map:
+            # Reuse maps generated in the Sheets obfuscation step
+            core.info()
+            core.success("Reusing column obfuscation maps from Step 2 for Firebase field names")
+            env["FIREBASE_INBOX_COLUMN_MAP"]  = json.dumps(inbox_map)
+            env["FIREBASE_OUTBOX_COLUMN_MAP"] = json.dumps(outbox_map)
+        else:
+            core.info()
+            core.info("Field name obfuscation replaces JSON keys with random strings.")
+            core.info("Recommended — combine with Fernet for full operational security.")
+            if core.ask_yn("Enable Firebase field name obfuscation?", default=True):
+                maps = _generate_maps()
+                core.info()
+                core.info("Generated field name mapping:")
+                core.info()
+                core.info("  Inbox fields:")
+                for logical, rand in maps["inbox"].items():
+                    core.info(f"    {logical:<20} →  {rand}")
+                core.info()
+                core.info("  Outbox fields:")
+                for logical, rand in maps["outbox"].items():
+                    core.info(f"    {logical:<20} →  {rand}")
+                core.info()
+                core.info("Both server and client .env must use the same maps.")
+                env["FIREBASE_INBOX_COLUMN_MAP"]  = json.dumps(maps["inbox"])
+                env["FIREBASE_OUTBOX_COLUMN_MAP"] = json.dumps(maps["outbox"])
+                core.success("Field name obfuscation enabled")
+            else:
+                core.success("Field name obfuscation disabled — logical names will be used")
+
+        return env
