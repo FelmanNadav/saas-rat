@@ -57,7 +57,7 @@ Step-by-step browser instructions. The wizard asks for each value individually. 
 
 The wizard walks through creating a Firebase Realtime Database in the Firebase console, setting public read/write rules (encryption handles content security), and runs a live connection test before writing env vars. No Apps Script required.
 
-Firebase also supports optional field name obfuscation via `FIREBASE_INBOX_COLUMN_MAP` and `FIREBASE_OUTBOX_COLUMN_MAP`. Set these manually in `.env` after wizard setup — use the same random strings as your Sheets column maps, or generate new ones. Both client and server must use identical maps.
+The Firebase wizard generates field name obfuscation maps (`FIREBASE_INBOX_COLUMN_MAP` / `FIREBASE_OUTBOX_COLUMN_MAP`) automatically — enabled by default. If Sheets column obfuscation was enabled in Step 2, the same maps are reused for Firebase. Otherwise the wizard generates new maps and writes them to `.env`. Both client and server must use the same maps.
 
 See [docs/firebase.md](firebase.md) for the full Firebase channel reference.
 

@@ -37,7 +37,8 @@ The wizard walks through:
 2. Setting database rules to test mode (public read/write — encryption handles content security)
 3. Collecting the database URL and paths
 4. Running a live connection test (write + delete a test entry)
-5. Writing env vars to `.env`
+5. Generating field name obfuscation maps (`FIREBASE_INBOX_COLUMN_MAP` / `FIREBASE_OUTBOX_COLUMN_MAP`) — enabled by default; reuses Sheets maps if already generated in Step 2
+6. Writing all env vars to `.env`
 
 ### Manual setup
 
@@ -54,6 +55,10 @@ CHANNEL=firebase
 FIREBASE_URL=https://<project-id>-default-rtdb.firebaseio.com
 FIREBASE_INBOX_PATH=c2/inbox
 FIREBASE_OUTBOX_PATH=c2/outbox
+
+# Optional but recommended — field name obfuscation
+FIREBASE_INBOX_COLUMN_MAP={"command_id":"f3a7k","command":"x9m2p","payload":"b4r8w","target":"d1n5q","status":"h6v3j","created_at":"k2y9t"}
+FIREBASE_OUTBOX_COLUMN_MAP={"command_id":"p7c4s","client_id":"m1z8e","status":"w5g2u","result":"a9b3l","timestamp":"r6q7n"}
 ```
 
 ---
@@ -62,15 +67,17 @@ FIREBASE_OUTBOX_PATH=c2/outbox
 
 ```
 /<FIREBASE_INBOX_PATH>/
-  <command_id>: { command_id, command, payload, target, status, created_at }
-  <command_id>_f0: { ...fragment... }   # fragment entries, if fragmentation is enabled
-  <command_id>_f1: { ...fragment... }
+  <sha256[:12]>: { command_id, command, payload, target, status, created_at }
+  <sha256[:12]>_f0: { ...fragment... }   # fragment entries, if fragmentation is enabled
+  <sha256[:12]>_f1: { ...fragment... }
 
 /<FIREBASE_OUTBOX_PATH>/
-  <command_id>: { command_id, client_id, status, result, timestamp }
+  <sha256[:12]>: { command_id, client_id, status, result, timestamp }
 ```
 
-Each entry is keyed by `command_id`. Fragment entries use `{command_id}_fN` keys so parallel fragments for the same command don't overwrite each other.
+Path keys are the first 12 hex characters of `SHA-256(command_id)` — opaque strings that reveal nothing about the entry type or content. Fragment entries use `{hash}_fN` keys. Field names within each entry are the logical names shown above, or random strings if field name obfuscation is enabled.
+
+Cleanup uses the same hash to reconstruct the exact path key for `DELETE` requests.
 
 ---
 
@@ -89,16 +96,16 @@ With Fernet enabled, every field value is encrypted before being written to Fire
 
 ## Field Name Obfuscation
 
-Firebase JSON keys can be obfuscated with the same map pattern used by the Sheets channel. Set `FIREBASE_INBOX_COLUMN_MAP` and `FIREBASE_OUTBOX_COLUMN_MAP` to replace logical field names (`command_id`, `status`, etc.) with random strings:
+Firebase JSON field names can be replaced with random strings using `FIREBASE_INBOX_COLUMN_MAP` and `FIREBASE_OUTBOX_COLUMN_MAP`. The setup wizard generates and writes these automatically — enabled by default.
+
+Combined with path key hashing and Fernet encryption, an observer with database access sees only opaque hex path keys, random field names, and encrypted values.
 
 ```env
 FIREBASE_INBOX_COLUMN_MAP={"command_id":"f3a7k","command":"x9m2p","payload":"b4r8w","target":"d1n5q","status":"h6v3j","created_at":"k2y9t"}
 FIREBASE_OUTBOX_COLUMN_MAP={"command_id":"p7c4s","client_id":"m1z8e","status":"w5g2u","result":"a9b3l","timestamp":"r6q7n"}
 ```
 
-When set, an observer with database access sees only random key names and (with Fernet enabled) encrypted values — no recognisable field names. Both client and server must use the same maps.
-
-The maps compose with encryption: values are encrypted first using logical key names, then the keys are renamed. On read, keys are restored to logical names before decryption.
+Both client and server must use the same maps. Values are encrypted before keys are renamed — on read, keys are restored to logical names before decryption.
 
 ---
 
