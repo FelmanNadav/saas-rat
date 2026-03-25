@@ -268,14 +268,15 @@ class TestWriteTaskWithColumnMap:
         assert "f3a7k" in body        # command_id → f3a7k
         assert "command_id" not in body
 
-    def test_url_still_keyed_by_logical_command_id(self, firebase_env_with_maps):
-        from channel.firebase import FirebaseChannel
+    def test_url_keyed_by_hash_of_command_id(self, firebase_env_with_maps):
+        from channel.firebase import FirebaseChannel, _path_key
         data = {"command_id": "abc123", "command": "shell", "status": "pending",
                 "payload": "", "target": "", "created_at": ""}
         with patch("requests.put", return_value=ok_response()) as mock_put:
             FirebaseChannel().write_task(data)
         url = mock_put.call_args[0][0]
-        assert "abc123" in url
+        assert _path_key("abc123") in url
+        assert "abc123" not in url
 
     def test_no_map_sends_logical_keys(self, firebase_env):
         from channel.firebase import FirebaseChannel

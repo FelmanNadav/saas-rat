@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from typing import Optional
@@ -54,22 +55,32 @@ _HEADERS = {
 }
 
 
-def _entry_key(data: dict) -> str:
-    """Derive a unique Firebase key from a data row.
+def _path_key(command_id: str) -> str:
+    """Return a short opaque path key derived from command_id.
 
-    Non-fragment rows use command_id as the key.
-    Fragment rows (status="frag:N:T") use "{command_id}_f{N}" so that
-    multiple fragments for the same command don't overwrite each other.
+    Hashing prevents command_id content (e.g. "heartbeat-<uuid>") from
+    appearing as a readable key in the Firebase database tree.
+    Deterministic so delete_task/delete_result can reconstruct the same key.
+    """
+    return hashlib.sha256(command_id.encode()).hexdigest()[:12]
+
+
+def _entry_key(data: dict) -> str:
+    """Derive a unique opaque Firebase path key from a data row.
+
+    Non-fragment rows: SHA-256[:12] of command_id.
+    Fragment rows (status="frag:N:T"): "{hash}_f{N}" so that multiple
+    fragments for the same command don't overwrite each other.
     """
     cmd_id = data.get("command_id", "unknown")
     status = data.get("status", "")
     if status.startswith("frag:"):
         parts = status.split(":")
         try:
-            return f"{cmd_id}_f{int(parts[1])}"
+            return f"{_path_key(cmd_id)}_f{int(parts[1])}"
         except (IndexError, ValueError):
             pass
-    return cmd_id
+    return _path_key(cmd_id)
 
 
 class FirebaseChannel(Channel):
@@ -174,14 +185,14 @@ class FirebaseChannel(Channel):
 
     def delete_task(self, command_id: str) -> bool:
         """Delete an inbox entry by command_id.
-        Note: only deletes the primary entry key. Fragment keys ({id}_fN)
+        Note: only deletes the primary entry key. Fragment keys ({hash}_fN)
         are left in place and cleaned up on the next scheduled clear.
         """
-        return self._delete(self._inbox_url(f"/{command_id}"))
+        return self._delete(self._inbox_url(f"/{_path_key(command_id)}"))
 
     def delete_result(self, command_id: str) -> bool:
         """Delete an outbox entry by command_id."""
-        return self._delete(self._outbox_url(f"/{command_id}"))
+        return self._delete(self._outbox_url(f"/{_path_key(command_id)}"))
 
     # ------------------------------------------------------------------
     # Fragment builders
