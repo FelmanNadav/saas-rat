@@ -12,6 +12,7 @@ dist/
 build/
 *.spec
 medium_post.md
+summary.md
 ideas/
 docs/examples.md
 *.json
