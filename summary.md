@@ -174,13 +174,6 @@ The AI behavior is entirely driven by `system_prompt.txt` — the model is given
 
 ---
 
-## Encryption & Obfuscation
-
-- **Fernet** — symmetric encryption applied at the channel boundary. All field values encrypted before write, decrypted after read. Both sides must share the same key.
-- **Column obfuscation** — logical field names (`command_id`, `status`, `result`) replaced with short random strings at setup time. The sheet or database appears as arbitrary data to an observer with access.
-
----
-
 ## Delivery
 
 The client is distributed as a standalone binary via `packager.py` — no Python installation required on the target. Config is passed entirely through environment variables at runtime; nothing operational is baked into the binary.
