@@ -319,6 +319,7 @@ class SheetsWizard(WizardChannel):
             core.warn("Something may have gone wrong in the script — check the execution log.")
 
         env = {k: str(v) for k, v in parsed.items() if k in required}
+        env["CHANNEL"] = "sheets"
 
         if inbox_map:
             env["INBOX_COLUMN_MAP"]  = json.dumps(inbox_map)
@@ -409,4 +410,5 @@ class SheetsWizard(WizardChannel):
         if outbox_map:
             env["OUTBOX_COLUMN_MAP"] = json.dumps(outbox_map)
 
+        env["CHANNEL"] = "sheets"
         return env
