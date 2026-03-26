@@ -182,6 +182,7 @@ class TestSheetsCleanupWarning:
         monkeypatch.setattr(ch, "_gspread_client", lambda: gc)
         monkeypatch.setenv("SPREADSHEET_ID", "sid123")
         monkeypatch.setenv("INBOX_GID", "111")
+        monkeypatch.delenv("INBOX_COLUMN_MAP", raising=False)
 
         import common
         monkeypatch.setattr("common.get_encryptor", lambda: MagicMock(decrypt=lambda v: v))

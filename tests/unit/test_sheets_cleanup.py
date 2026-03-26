@@ -28,8 +28,9 @@ SHEETS_BASE_ENV = {
 def sheets_env(monkeypatch):
     for k, v in SHEETS_BASE_ENV.items():
         monkeypatch.setenv(k, v)
-    monkeypatch.delenv("INBOX_COLUMN_MAP",  raising=False)
-    monkeypatch.delenv("OUTBOX_COLUMN_MAP", raising=False)
+    monkeypatch.delenv("INBOX_COLUMN_MAP",            raising=False)
+    monkeypatch.delenv("OUTBOX_COLUMN_MAP",           raising=False)
+    monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_JSON", raising=False)
     import common
     common._active_channel = None
     yield

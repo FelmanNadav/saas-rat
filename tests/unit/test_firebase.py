@@ -170,7 +170,8 @@ class TestChannelProperties:
         from channel.firebase import FirebaseChannel
         assert FirebaseChannel().supports_cleanup is True
 
-    def test_sheets_supports_cleanup_is_false(self):
+    def test_sheets_supports_cleanup_is_false(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_JSON", raising=False)
         from channel.sheets import SheetsChannel
         assert SheetsChannel().supports_cleanup is False
 

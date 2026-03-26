@@ -115,6 +115,7 @@ def _reassemble_fragments(rows, data_field, done_status):
 # ---------------------------------------------------------------------------
 
 _active_channel = None
+load_env()  # load .env on import if present
 
 
 def get_channel():
