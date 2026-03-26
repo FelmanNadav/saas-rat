@@ -14,9 +14,6 @@ This was built almost entirely with Claude Code. A project of this scope in a tw
 
 Google Sheets as a C2 channel. The read side is a public CSV export — unauthenticated, works from any network. The write side was the harder problem: the Sheets API requires OAuth for every write endpoint, with no anonymous write option. The workaround is Google Forms — submitting a form response appends a row to a linked sheet with no authentication required on the submitter's side. Both client and server communicate exclusively through `docs.google.com`, a domain whitelisted by virtually every enterprise security stack.
 
-*[screenshot — Google Sheet inbox tab in plaintext mode: readable column names, command rows visible]*
-
-*[screenshot — same sheet in production mode: random column names, Fernet-encrypted field values — an observer sees noise]*
 
 ---
 
@@ -82,19 +79,12 @@ The `switch_channel` command pivots the client mid-operation. The ACK for the sw
 **Channel pivot example:**
 
 ```
-> give me the current user and hostname
+> list all files on current dir
 ```
-*[screenshot — result arrives via Sheets, outbox tab shows a new row]*
 
 ```
 > switch to firebase
 ```
-*[screenshot — server log showing "Channel switched → firebase"]*
-
-```
-> list the current directory
-```
-*[screenshot — result arrives — no new row in the Google Sheet. Firebase console shows the command and result nodes.]*
 
 ---
 
@@ -134,8 +124,6 @@ Cross-platform operation is handled transparently: the AI detects the target OS 
   [✓] Running as root on ubuntu-victim (Linux 5.15.0, x86_64). Python 3.11.4.
 ```
 
-*[screenshot — full AI console session: prompt → proposed command → confirmation → interpreted result]*
-
 ---
 
 ## Defense Evasion
@@ -151,7 +139,6 @@ Cross-platform operation is handled transparently: the AI detects the target OS 
 
 **Silent mode** (all profiles): `print = lambda *_a, **_kw: None` prepended at build time. Every `print()` call becomes a no-op — sandbox stdout monitoring sees nothing.
 
-*[screenshot — `strings` output on basic binary vs Nuitka binary: Python strings present vs absent]*
 
 ### Network — data in motion
 
