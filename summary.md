@@ -177,3 +177,5 @@ The AI behavior is entirely driven by `system_prompt.txt` — the model is given
 ## Delivery
 
 The client is distributed as a standalone binary via `packager.py` — no Python installation required on the target. Config is passed entirely through environment variables at runtime; nothing operational is baked into the binary.
+
+The framework was tested against both Linux and Windows targets. The AI console detects the target OS from the first heartbeat and adapts all command translations automatically — the operator uses identical natural language regardless of platform.
