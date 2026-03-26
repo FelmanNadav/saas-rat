@@ -216,7 +216,7 @@ class SheetsChannel(Channel):
 
             return bool(to_delete)
         except Exception as e:
-            print(f"[warn] sheet cleanup failed: {e}")
+            print(f"[warn] sheet cleanup failed: {type(e).__name__}: {e}")
             return False
 
     def delete_task(self, command_id):

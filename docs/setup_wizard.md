@@ -79,21 +79,40 @@ Choose how large results are handled.
 
 Choose how inbox and outbox rows are cleaned up:
 
-| Option | How it works | GCP required |
-|--------|-------------|-------------|
-| **Service account** | Deletes each row immediately after the result is confirmed — per-message, automatic | Yes |
-| **Apps Script trigger** | Scheduled batch cleanup on a configurable interval (default 6h) — generates `sheets_c2_cleanup.gs` | No |
-| **Skip** | No automatic cleanup — run `cleanupAll()` in script.google.com manually | No |
+| Option | How it works | GCP required | Speed |
+|--------|-------------|-------------|-------|
+| **Service account** | Deletes each row immediately after the result is confirmed — per-message, automatic | Yes | Slower — each delete is an API call from your machine |
+| **Apps Script trigger** | Scheduled batch cleanup on a configurable interval (default 6h) — generates `sheets_c2_cleanup.gs` | No | Near-instant — runs inside Google's infrastructure |
+| **Skip** | No automatic cleanup — run `cleanupAll()` in script.google.com manually | No | — |
+
+> **Which to choose:** Use **Apps Script trigger** if you want simple setup and fast cleanup. Use **service account** if you need per-message deletion and don't mind the per-call latency.
+
+---
 
 **Service account setup (inline in wizard):**
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) → same project as your sheet
-2. IAM & Admin → Service Accounts → Create Service Account → give it a name → Done
-3. Click the service account → Keys tab → Add Key → JSON → Create → save the file
-4. Copy `client_email` from the JSON → open your sheet → Share → paste email → Editor → Send
-5. Enter the path to the JSON file when the wizard prompts
+
+The wizard walks through each step. Complete them before pressing Enter.
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. If you have no project, click the project dropdown → **New Project** → give it any name → **Create**
+3. Select the project → **APIs & Services** → **Enable APIs and Services**
+4. Search **Google Sheets API** → Enable *(required — gspread will fail without this)*
+5. **IAM & Admin** → **Service Accounts** → **Create Service Account** → give it any name (e.g. `c2-cleanup`) → **Done**
+6. Click the service account → **Keys** tab → **Add Key** → **JSON** → **Create** → save the downloaded file
+7. Open the JSON file and copy the `client_email` value (e.g. `c2-cleanup@your-project.iam.gserviceaccount.com`)
+8. Open your Google Sheet → **Share** → paste `client_email` → set role to **Editor** → **Send**
+9. Enter the path to the JSON file when the wizard prompts
+
+> **Note:** The Google Drive API is **not** required — only the Sheets API.
+
+> **Note:** Row deletion happens on the server machine via HTTPS API calls. Each delete adds ~1–2s of latency after a result arrives. This is normal.
+
+---
 
 **Apps Script trigger setup:**
+
 The wizard generates `sheets_c2_cleanup.gs` with your spreadsheet IDs and chosen interval baked in.
+
 1. Go to [script.google.com](https://script.google.com) → create a new project
 2. Paste the contents of `sheets_c2_cleanup.gs`
 3. Run `installTrigger()` once — cleanup runs automatically on the chosen schedule
