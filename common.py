@@ -16,6 +16,28 @@ def load_env(path=".env"):
     _active_channel = None
 
 
+def persist_env_var(key, value, path=".env"):
+    """Update a single key in .env so it survives restarts."""
+    if not os.path.exists(path):
+        return
+    with open(path) as f:
+        lines = f.readlines()
+    found = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#") or "=" not in stripped:
+            continue
+        k, _, _ = stripped.partition("=")
+        if k.strip() == key:
+            lines[i] = f"{key}={value}\n"
+            found = True
+            break
+    if not found:
+        lines.append(f"{key}={value}\n")
+    with open(path, "w") as f:
+        f.writelines(lines)
+
+
 def get_fragmenter():
     """Return the configured Fragmenter instance based on FRAGMENT_METHOD env var."""
     method = os.environ.get("FRAGMENT_METHOD", "passthrough").strip().lower()

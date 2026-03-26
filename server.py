@@ -113,6 +113,7 @@ def _apply_channel_switch(channel_name):
         from channel.sheets import SheetsChannel
         common.set_channel(SheetsChannel())
     os.environ["CHANNEL"] = channel_name
+    common.persist_env_var("CHANNEL", channel_name)
 
 
 
