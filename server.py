@@ -101,7 +101,6 @@ def send_command(command, payload=None, target="outbox"):
         for frag in frags:
             common.write_inbox_form(frag)
     print(f"[server] Sent {command_id}: {command}")
-    _print_delivery_estimate()
     return command_id
 
 
@@ -115,46 +114,6 @@ def _apply_channel_switch(channel_name):
         common.set_channel(SheetsChannel())
     os.environ["CHANNEL"] = channel_name
 
-
-def _print_delivery_estimate():
-    """Print expected response timing based on client config and fragment settings."""
-    # Read client config if available locally, otherwise use defaults
-    client_cfg = {}
-    if os.path.exists(".client_config.json"):
-        try:
-            with open(".client_config.json") as f:
-                client_cfg = json.load(f)
-        except Exception:
-            pass
-
-    try:
-        interval   = float(client_cfg.get("cycle_interval_sec", 30))
-        jitter_min = float(client_cfg.get("cycle_jitter_min",    5))
-        jitter_max = float(client_cfg.get("cycle_jitter_max",   15))
-    except ValueError:
-        interval, jitter_min, jitter_max = 30, 5, 15
-
-    cycle_min = interval + jitter_min
-    cycle_max = interval + jitter_max
-
-    method = os.environ.get("FRAGMENT_METHOD", "passthrough").strip().lower()
-
-    if method == "fixed":
-        try:
-            chunk_size = int(os.environ.get("FRAGMENT_CHUNK_SIZE", 2000))
-        except ValueError:
-            chunk_size = 2000
-        print(
-            f"{C_DIM}[timing] Fragmentation on (chunk: {chunk_size}b). "
-            f"First fragment arrives in {cycle_min:.0f}–{cycle_max:.0f}s. "
-            f"Each additional fragment adds {cycle_min:.0f}–{cycle_max:.0f}s. "
-            f"Large results span multiple cycles.{C_RESET}"
-        )
-    else:
-        print(
-            f"{C_DIM}[timing] Response expected in {cycle_min:.0f}–{cycle_max:.0f}s "
-            f"(1 poll cycle).{C_RESET}"
-        )
 
 
 def collect(filter_id=None):
