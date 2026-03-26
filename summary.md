@@ -121,6 +121,8 @@ The result is a natural language interface on top of the existing command protoc
 
 The AI behavior is entirely driven by `system_prompt.txt` — the model is given the full command protocol, available commands, payload formats, and config keys. Pushing it further toward autonomous operation is a prompt edit, not a code change.
 
+Cross-platform operation is handled transparently: the AI detects the target OS from the first heartbeat and adapts all command translations accordingly. The operator types the same natural language against a Linux or Windows target — the AI bridges the gap.
+
 **Example session:**
 
 ```
