@@ -74,7 +74,31 @@ Choose how large results are handled.
 
 - **OpenAI API key** — required for `server.py ai` mode only. Skip if using CLI mode.
 - **Client ID** — identifier reported in results. Defaults to `NADAV`. Useful when running multiple clients.
-- **Service account JSON** (Sheets only) — path to a GCP service account key file. When set, the server automatically deletes inbox and outbox rows after each confirmed result — no manual cleanup needed. Setup: GCP → IAM & Admin → Service Accounts → Create → download JSON key → share the spreadsheet with the service account email (Editor role).
+
+### 5b. Sheets Cleanup (Sheets channel only)
+
+Choose how inbox and outbox rows are cleaned up:
+
+| Option | How it works | GCP required |
+|--------|-------------|-------------|
+| **Service account** | Deletes each row immediately after the result is confirmed — per-message, automatic | Yes |
+| **Apps Script trigger** | Scheduled batch cleanup on a configurable interval (default 6h) — generates `sheets_c2_cleanup.gs` | No |
+| **Skip** | No automatic cleanup — run `cleanupAll()` in script.google.com manually | No |
+
+**Service account setup (inline in wizard):**
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → same project as your sheet
+2. IAM & Admin → Service Accounts → Create Service Account → give it a name → Done
+3. Click the service account → Keys tab → Add Key → JSON → Create → save the file
+4. Copy `client_email` from the JSON → open your sheet → Share → paste email → Editor → Send
+5. Enter the path to the JSON file when the wizard prompts
+
+**Apps Script trigger setup:**
+The wizard generates `sheets_c2_cleanup.gs` with your spreadsheet IDs and chosen interval baked in.
+1. Go to [script.google.com](https://script.google.com) → create a new project
+2. Paste the contents of `sheets_c2_cleanup.gs`
+3. Run `installTrigger()` once — cleanup runs automatically on the chosen schedule
+4. Run `cleanupAll()` at any time for an immediate manual sweep
+5. Run `removeTrigger()` to disable the schedule
 
 ### 6. Summary and Write
 

@@ -327,44 +327,6 @@ class SheetsWizard(WizardChannel):
 
         core.success("Spreadsheet and forms configured")
 
-        # ── Cleanup script ────────────────────────────────────────────────────
-        core.info()
-        core.info("Generating cleanup script...")
-
-        def _validate_hours(v):
-            try:
-                n = int(v)
-                if n < 1 or n > 168:
-                    return "Enter a number between 1 and 168"
-            except ValueError:
-                return "Must be a whole number"
-
-        hours = core.ask(
-            "Auto-cleanup interval in hours (for installTrigger)",
-            default="6",
-            validator=_validate_hours,
-        )
-
-        cleanup_script = _build_cleanup_script(
-            spreadsheet_id=env["SPREADSHEET_ID"],
-            inbox_gid=int(parsed["INBOX_GID"]),
-            outbox_gid=int(parsed["OUTBOX_GID"]),
-            cleanup_hours=int(hours),
-        )
-        with open("sheets_c2_cleanup.gs", "w") as f:
-            f.write(cleanup_script)
-
-        core.info()
-        core.info("Cleanup script written to:  sheets_c2_cleanup.gs")
-        core.info()
-        core.info("To install:")
-        core.info("  1. Go to https://script.google.com — create a new project")
-        core.info("  2. Paste the contents of sheets_c2_cleanup.gs")
-        core.info("  3. Run cleanupAll() manually at any time, or")
-        core.info("     Run installTrigger() once to automate cleanup every "
-                  f"{hours} hour(s)")
-        core.info("  4. Run removeTrigger() to disable the automated cleanup")
-
         return env
 
     # ── Manual setup ──────────────────────────────────────────────────────────

@@ -192,16 +192,102 @@ def main():
         core.success(f"Client ID: {client_id}")
 
     if "sheets" in selected:
+        core.section("Step 5b — Sheets Cleanup")
+        core.info("Inbox and outbox rows accumulate over time. Choose a cleanup strategy:")
         core.info()
-        core.info("Service account cleanup (optional, Sheets only):")
-        core.info("  When set, the server auto-deletes inbox/outbox rows after each")
-        core.info("  confirmed result — no manual cleanup script needed.")
-        core.info("  Setup: GCP → IAM → Service Accounts → Create → download JSON key")
-        core.info("         then share the spreadsheet with the service account email (Editor)")
-        sa_path = core.ask_optional("Path to service account JSON key file")
-        if sa_path:
+        core.info("  A) Service account — deletes each row immediately after the result")
+        core.info("     is confirmed. Precise and automatic. Requires a GCP service account.")
+        core.info()
+        core.info("  B) Apps Script trigger — scheduled batch cleanup on a timer.")
+        core.info("     No GCP setup needed. Simpler, but rows accumulate between runs.")
+        core.info()
+        core.info("  C) Skip — manual cleanup only (run cleanupAll() in script.google.com).")
+        core.info()
+
+        cleanup_choice = core.ask_choice(
+            "Choose cleanup method:",
+            {
+                "sa":     "Service account  (per-message, automatic)",
+                "script": "Apps Script trigger  (scheduled batch, no GCP needed)",
+                "none":   "Skip",
+            },
+        )
+
+        if cleanup_choice == "sa":
+            core.info()
+            core.info("Create a service account in GCP:")
+            core.info("  1. Go to https://console.cloud.google.com")
+            core.info("  2. Select the GCP project linked to your Google Sheet")
+            core.info("  3. IAM & Admin → Service Accounts → Create Service Account")
+            core.info("  4. Give it any name (e.g. c2-cleanup) → Done")
+            core.info("  5. Click the service account → Keys tab → Add Key → JSON → Create")
+            core.info("  6. Save the downloaded JSON file somewhere on this machine")
+            core.info()
+            core.info("Share the spreadsheet:")
+            core.info("  7. Open the JSON file and copy the 'client_email' value")
+            core.info("  8. Open your Google Sheet → Share → paste that email → Editor → Send")
+            core.info()
+            core.pause("Complete those steps, then press Enter to continue")
+
+            def _validate_sa_path(v):
+                import os as _os
+                if not _os.path.exists(v):
+                    return f"File not found: {v}"
+                if not v.endswith(".json"):
+                    return "Expected a .json file"
+
+            sa_path = core.ask(
+                "Path to service account JSON key file",
+                validator=_validate_sa_path,
+            )
             env["GOOGLE_SERVICE_ACCOUNT_JSON"] = sa_path
-            core.success("Service account cleanup enabled")
+            core.success("Service account cleanup enabled — rows deleted per confirmed result")
+
+        elif cleanup_choice == "script":
+            from wizard.channel.sheets import _build_cleanup_script
+
+            def _validate_hours(v):
+                try:
+                    n = int(v)
+                    if n < 1 or n > 168:
+                        return "Enter a number between 1 and 168"
+                except ValueError:
+                    return "Must be a whole number"
+
+            hours = core.ask(
+                "Cleanup interval in hours",
+                default="6",
+                validator=_validate_hours,
+            )
+
+            sid  = env.get("SPREADSHEET_ID", "")
+            igid = env.get("INBOX_GID", "0")
+            ogid = env.get("OUTBOX_GID", "0")
+
+            try:
+                cleanup_script = _build_cleanup_script(
+                    spreadsheet_id=sid,
+                    inbox_gid=int(igid),
+                    outbox_gid=int(ogid),
+                    cleanup_hours=int(hours),
+                )
+                with open("sheets_c2_cleanup.gs", "w") as f:
+                    f.write(cleanup_script)
+                core.info()
+                core.success(f"Cleanup script written → sheets_c2_cleanup.gs  (every {hours}h)")
+                core.info()
+                core.info("To activate:")
+                core.info("  1. Go to https://script.google.com — create a new project")
+                core.info("  2. Paste the contents of sheets_c2_cleanup.gs")
+                core.info("  3. Run installTrigger() once — cleanup runs every "
+                          f"{hours} hour(s) automatically")
+                core.info("  4. Run cleanupAll() at any time for an immediate manual sweep")
+                core.info("  5. Run removeTrigger() to disable the schedule")
+            except Exception as e:
+                core.warn(f"Could not write cleanup script: {e}")
+
+        else:
+            core.success("Cleanup skipped — use cleanupAll() in script.google.com when needed")
 
     # ── Step 6: Summary + write ───────────────────────────────────────────────
     core.section("Step 6 — Summary")
