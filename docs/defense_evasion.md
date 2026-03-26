@@ -256,15 +256,18 @@ For persistence (cron, systemd, registry run key): the persistence entry carries
 
 ---
 
-### Channel Rotation *(planned)*
+### Channel Rotation *(implemented)*
 
 **Problem:** All C2 traffic goes through a single Google Sheets document. If the document is discovered and deleted, or the account is suspended, the C2 channel is gone permanently.
 
-**Fix:** The `switch_channel` command (planned) allows the operator to pivot the client to a completely different transport mid-operation — Firebase, a custom HTTP endpoint, or any other implemented channel backend. The current Sheets channel burns after the switch; it is no longer reachable or useful to a defender.
+**Fix:** The `switch_channel` command allows the operator to pivot the client to a completely different transport mid-operation without restarting the client. Two channels are implemented:
 
-Combined with `switch_encryption` and `switch_fragmenter`, a full pivot sequence (encryption → fragmentation → channel) can be executed without restarting the client.
+- **Sheets** — traffic via `docs.google.com` (CSV reads + Forms POSTs)
+- **Firebase** — traffic via `firebaseio.com` (Realtime Database reads/writes)
 
-**What it defeats:** Single-channel dependency, document-level takedowns, account suspension.
+The deferred switch pattern ensures the ACK for the switch itself is delivered on the *old* channel before the client pivots. The server mirrors the switch automatically when the result arrives — both sides move together with no coordination gap. The old channel is no longer polled or written to after the switch; it becomes a dead artifact.
+
+**What it defeats:** Single-channel dependency, document-level takedowns, account suspension. Pivoting to Firebase shifts all traffic from `docs.google.com` to `firebaseio.com` — a different domain, a different request pattern, and a different Google product — forcing a defender to expand their detection scope to cover both.
 
 ---
 

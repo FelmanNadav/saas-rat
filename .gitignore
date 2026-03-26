@@ -12,3 +12,5 @@ dist/
 build/
 *.spec
 medium_post.md
+ideas/
+docs/examples.md

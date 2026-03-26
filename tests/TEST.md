@@ -7,7 +7,7 @@ source venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-92 tests, no external dependencies, no network calls.
+263 tests, no external dependencies, no network calls.
 
 ### Coverage
 
@@ -38,7 +38,7 @@ python -m pytest tests/ -v
 
 | Gap | Reason |
 |-----|--------|
-| Multi-cycle send queue (one fragment per poll) | Requires channel abstraction — see `ideas/pluggable_channels.md` |
+| Multi-cycle send queue (one fragment per poll) | Requires live channel — integration test only |
 | `send_heartbeat` | Real network call |
 | AI console | GPT-4o — excluded by design |
 | `server.py collect` / `collect_new` | Thin wrappers over `read_outbox` (tested) |
